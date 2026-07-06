@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.react-router/
+.wrangler/
+worker-configuration.d.ts
+*.log
+.DS_Store
+.env
+.env.*
+.dev.vars
+coverage/

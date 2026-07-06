@@ -1,0 +1,33 @@
+{
+  // agentblip — Slack status sync for local AI agent sessions
+  // Self-hosting: create your own KV namespace (`wrangler kv namespace create STORE`),
+  // swap the id below, set the secrets listed at the bottom, and `npm run deploy`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentblip",
+  "main": "./workers/app.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // Single KV namespace: pairing codes (TTL'd) + device records.
+  // No D1, no ORM — a relay this small doesn't need a database.
+  "kv_namespaces": [
+    { "binding": "STORE", "id": "PLACEHOLDER_KV_ID" }
+  ],
+
+  "routes": [
+    { "pattern": "agentblip.com", "custom_domain": true },
+    { "pattern": "www.agentblip.com", "custom_domain": true }
+  ],
+
+  "vars": {
+    "BASE_URL": "https://agentblip.com",
+    // Slack app client id is public by design (appears in OAuth URLs).
+    "SLACK_CLIENT_ID": ""
+  }
+
+  // Secrets (set via `wrangler secret put NAME`):
+  //   SLACK_CLIENT_SECRET   — Slack app client secret (OAuth code exchange)
+  //   TOKEN_ENCRYPTION_KEY  — base64 32-byte key; AES-GCM for Slack tokens at rest
+  //                           generate: openssl rand -base64 32
+}

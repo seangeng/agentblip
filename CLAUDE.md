@@ -1,0 +1,144 @@
+# CLAUDE.md — agentblip
+
+> Single source of truth for AI-assisted development. Keep updated as work progresses.
+
+---
+
+## Project Overview
+
+- **Product**: agentblip — your Slack status, synced with your local AI agent sessions. Each session is a blip on your team's radar: "claude agent working", "3 agents working", "claude: finalizing CI/CD".
+- **Domain**: agentblip.com
+- **Repo**: github.com/seangeng/agentblip (open source, MIT)
+- **npm**: `agentblip` (CLI)
+- **Status**: building
+- **Last updated**: 2026-07-06
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Notes |
+|---|---|---|
+| Runtime | Cloudflare Workers | Relay backend + site, one Worker |
+| API Framework | Hono | Typed `Hono<{ Bindings: Env }>` |
+| Language | TypeScript | Strict mode, no `any` |
+| Frontend | React Router v7 (framework mode, SSR) | `@cloudflare/vite-plugin`, landing + /pair pages |
+| Styling | Tailwind CSS v4 | `@tailwindcss/vite` |
+| Validation | Zod v4 | Wire contracts in `packages/core/src/events.ts` |
+| Storage | Cloudflare KV only | Pairing codes (TTL) + device records. No D1, no ORM |
+| CLI | Commander.js + tsup | ESM single-file bundle, published as `agentblip` |
+| Tests | Vitest | Pure-logic units in core + worker lib |
+
+---
+
+## Architecture
+
+```
+Claude Code hooks ─┐
+Codex watcher ─────┤   POST /event      ┌────────────────────┐  POST /api/status   ┌──────────────┐
+Any tool (curl) ───┼──────────────────▶ │ agentblip daemon   │ ───────────────────▶│ relay Worker │──▶ Slack API
+                   │  localhost:4519    │ SessionStore →     │  pre-formatted      │ (or direct   │   users.profile.set
+                   └                    │ formatStatus →sink │  SlackStatus only   │  Slack sink) │
+                                        └────────────────────┘                     └──────────────┘
+```
+
+- **The daemon is the only thing that sees raw session data.** The relay receives a pre-formatted `SlackStatus` (text/emoji/expiration) — nothing else. Privacy by construction.
+- Slack status carries a rolling `status_expiration` (default 5 min), so a dead daemon auto-clears your status.
+- Three sinks: `relay` (hosted or self-hosted Worker), `slack` (direct user token, no server), `console` (dry run).
+
+## Project Structure
+
+```
+├── CLAUDE.md                  # ← this file (keep updated)
+├── README.md                  # flagship OSS readme
+├── wrangler.jsonc             # Worker config: KV STORE, custom domains, secrets docs
+├── workers/app.ts             # Worker entry: Hono /api + RR7 SSR catch-all
+├── src/                       # Worker backend
+│   ├── env.ts                 # Env bindings/secrets types
+│   ├── api/                   # Hono routes: pair, slack oauth, status, health
+│   └── lib/                   # kv store, slack client, token crypto, rate limit
+├── app/                       # React Router v7 (SSR)
+│   ├── root.tsx
+│   ├── routes.ts
+│   ├── routes/                # _index (landing), pair, privacy
+│   └── app.css                # Tailwind v4
+├── packages/
+│   ├── core/                  # @agentblip/core — shared, dependency-light (zod only)
+│   │   └── src/               # events (zod wire contracts), aggregate, format, redact
+│   └── cli/                   # `agentblip` npm CLI (daemon + adapters + sinks)
+│       └── src/
+│           ├── commands/      # setup, start, status, emit, hook, pause, unlink, doctor
+│           ├── adapters/      # claude-code (hooks), codex (notify+watcher)
+│           └── sinks/         # relay, slack-direct, console
+└── docs/                      # SELF_HOSTING.md, INTEGRATIONS.md, slack-app-manifest
+```
+
+## API Routes (Worker)
+
+- `GET  /api/health` — public health check
+- `POST /api/pair/start` — CLI begins pairing → `{code, deviceId, pollSecret, verifyUrl}` (IP rate-limited)
+- `POST /api/pair/poll` — CLI polls → `{status, deviceToken?}` (token plaintext returned once)
+- `GET  /api/slack/install?code=` — redirects to Slack OAuth (user_scope: `users.profile:write`)
+- `GET  /api/slack/callback` — OAuth exchange, links Slack user to pending pairing
+- `POST /api/status` — `Bearer ab_…` device token; body `{status: SlackStatus | null}`; null clears
+- `POST /api/unlink` — revoke device, clear status
+
+Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worker).
+
+## KV Schema (binding: STORE)
+
+- `pair:{code}` → `{deviceId, pollSecretHash, status, slackRef?}` (TTL 15 min)
+- `device:{sha256(token)}` → `{slackUserId, teamId, teamName, encToken, createdAt, lastSeenAt}`
+- `rl:{scope}:{key}:{minuteBucket}` → counter (TTL 2 min)
+
+## Key Decisions
+
+| Date | Decision | Rationale |
+|---|---|---|
+| 2026-07-06 | KV-only, no D1/Better Auth in v1 | Relay is a token store, not an app DB. Self-hosters set up 1 KV namespace + 2 secrets. Accounts/dashboard can come later |
+| 2026-07-06 | CLI formats status locally; relay is dumb | Server never sees session/project/tool data — only final status text. Best privacy story for OSS |
+| 2026-07-06 | Device pairing flow (code → browser → Slack OAuth → token) | No accounts needed; mirrors happyuptime CLI claim flow |
+| 2026-07-06 | Slack tokens AES-GCM-encrypted in KV (`TOKEN_ENCRYPTION_KEY` secret) | KV dump alone can't leak xoxp tokens |
+| 2026-07-06 | Rolling `status_expiration` (5 min default) | Dead daemon → status auto-clears; no stale "working" lies |
+| 2026-07-06 | Hook/adapter events → tiny localhost HTTP API | One integration surface; Claude Code hooks, Codex, and any custom tool all speak the same `POST /event` |
+| 2026-07-06 | npm workspaces (core, cli) + root Worker app | Matches newest house projects (littledemo, motioness); core stays source-only, bundled by consumers |
+| 2026-07-06 | RR7 SSR framework mode | Current house standard (extractvibe, stackhooks, ogrender) |
+| 2026-07-06 | Static OG image v1 (no satori) | One marketing page; not worth the wasm weight yet |
+| 2026-07-06 | Daemon port 4519 | Unassigned range, no common collisions |
+
+## Cloudflare Resources
+
+| Resource | Binding | Notes |
+|---|---|---|
+| KV | STORE | id in wrangler.jsonc (create per-deploy) |
+| Var | BASE_URL | https://agentblip.com |
+| Var | SLACK_CLIENT_ID | public by design |
+| Secret | SLACK_CLIENT_SECRET | via wrangler secret put |
+| Secret | TOKEN_ENCRYPTION_KEY | base64 32 bytes, AES-GCM |
+
+## Development
+
+- `npm run dev` — RR7 + Worker dev server
+- `npm test` — core + worker unit tests (vitest)
+- `npm run typecheck` — RR typegen + tsc -b + workspaces
+- `npm run deploy` — build + wrangler deploy
+- CLI dev: `npm run dev -w packages/cli` (tsup watch), `node packages/cli/dist/index.js`
+
+## Current State
+
+### Working
+- [x] Scaffold: root configs, wrangler, RR7+vite, tsconfigs
+- [x] core: events/aggregate/format/redact + tests
+
+### In Progress
+- [ ] Worker API (pair, oauth, status), app routes, CLI, docs/CI — parallel build
+
+### Pending
+- [ ] Deploy to agentblip.com, GitHub push, Slack app creation (needs Sean), npm publish (needs Sean)
+
+## Work Log
+
+### 2026-07-06 — Project start
+- Named agentblip (domain bought, whois-verified); recon of house style across 12 sibling projects
+- Scaffolded per house standard; core package with full unit tests
+- Next: parallel build of worker/app/cli/docs

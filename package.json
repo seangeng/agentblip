@@ -1,0 +1,41 @@
+{
+  "name": "agentblip-app",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "react-router dev",
+    "build": "react-router build",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "react-router typegen && tsc -b && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && vitest run",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@agentblip/core": "*",
+    "hono": "^4.6.0",
+    "isbot": "^5.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router": "^7.6.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.7.0",
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "@react-router/dev": "^7.6.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.7.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.45.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
