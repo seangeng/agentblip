@@ -5,7 +5,8 @@
     "app/**/.server/**/*",
     "app/**/.client/**/*",
     "workers/**/*",
-    "src/**/*"
+    "src/**/*",
+    "packages/core/src/**/*"
   ],
   "compilerOptions": {
     "composite": true,

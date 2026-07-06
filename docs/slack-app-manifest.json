@@ -1,0 +1,18 @@
+{
+  "display_information": {
+    "name": "agentblip",
+    "description": "Your Slack status, synced with your local AI agent sessions.",
+    "background_color": "#1a1d21"
+  },
+  "oauth_config": {
+    "redirect_urls": ["https://agentblip.com/api/slack/callback"],
+    "scopes": {
+      "user": ["users.profile:write"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

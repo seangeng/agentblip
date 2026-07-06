@@ -1,0 +1,46 @@
+# Production deploy to Cloudflare Workers (agentblip.com).
+#
+# Required GitHub repository secrets:
+#   CLOUDFLARE_API_TOKEN   — Cloudflare API token with Workers permissions
+#                            (dashboard → My Profile → API Tokens → "Edit Cloudflare
+#                            Workers" template, scoped to your account + zone)
+#   CLOUDFLARE_ACCOUNT_ID  — your Cloudflare account id
+#                            (dashboard → Workers & Pages → right sidebar)
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy

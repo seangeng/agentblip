@@ -1,0 +1,64 @@
+{
+  "name": "agentblip",
+  "version": "0.1.0",
+  "description": "Your Slack status, synced with your local AI agent sessions — Claude Code, Codex, or any custom agent.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Sean Geng",
+  "homepage": "https://agentblip.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seangeng/agentblip.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/seangeng/agentblip/issues"
+  },
+  "bin": {
+    "agentblip": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "slack",
+    "slack-status",
+    "status",
+    "presence",
+    "claude",
+    "claude-code",
+    "codex",
+    "ai",
+    "ai-agents",
+    "agents",
+    "coding-agents",
+    "developer-tools",
+    "productivity",
+    "cli",
+    "daemon",
+    "automation",
+    "hooks"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "postbuild": "node -e \"require('node:fs').chmodSync('dist/index.js', 493)\"",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.1",
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@agentblip/core": "*",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

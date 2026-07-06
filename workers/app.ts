@@ -34,7 +34,8 @@ const requestHandler = createRequestHandler(
 
 app.all("*", (c) =>
   requestHandler(c.req.raw, {
-    cloudflare: { env: c.env, ctx: c.executionCtx },
+    // Hono's ExecutionContext type lags @cloudflare/workers-types (no `tracing`)
+    cloudflare: { env: c.env, ctx: c.executionCtx as unknown as ExecutionContext },
   }),
 );
 
