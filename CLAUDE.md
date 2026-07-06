@@ -130,19 +130,25 @@ Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worke
 
 ## Current State
 
-### Working
-- [x] Scaffold: root configs, wrangler, RR7+vite, tsconfigs
-- [x] core: events/aggregate/format/redact + tests
+### Working (deployed to agentblip.com)
+- [x] core: events/aggregate/format/redact/slack + 19 tests
+- [x] Worker relay: pairing (provisional records, delivered-grace, code normalization), Slack OAuth, status API, rate limits — 52 tests
+- [x] CLI: daemon (bearer-secret loopback API), claude-code + codex adapters, relay/slack/console sinks, 10 commands — 99 tests
+- [x] Landing + /pair + /privacy (RR7 SSR), deployed with custom domain
+- [x] GitHub github.com/seangeng/agentblip public, CI + push-to-deploy green (secrets set)
+- [x] E2E smoke: daemon lifecycle + live relay pairing/auth verified
 
-### In Progress
-- [ ] Worker API (pair, oauth, status), app routes, CLI, docs/CI — parallel build
-
-### Pending
-- [ ] Deploy to agentblip.com, GitHub push, Slack app creation (needs Sean), npm publish (needs Sean)
+### Pending (needs Sean)
+- [ ] Slack app creation from docs/slack-app-manifest.json → set SLACK_CLIENT_ID var + SLACK_CLIENT_SECRET secret, redeploy (OAuth leg untestable until then)
+- [ ] npm publish of packages/cli (needs npm auth)
+- [ ] www.agentblip.com DNS propagation (record created at deploy; verify)
 
 ## Work Log
 
-### 2026-07-06 — Project start
+### 2026-07-06 — Project start → shipped v0.1 skeleton-to-production in one day
 - Named agentblip (domain bought, whois-verified); recon of house style across 12 sibling projects
 - Scaffolded per house standard; core package with full unit tests
-- Next: parallel build of worker/app/cli/docs
+- Parallel 4-agent build (worker API / landing / CLI / docs+CI), integration pass
+- 5-dimension adversarial review: 39 agents, 33 confirmed findings → all fixed (see Decisions)
+- Deployed to agentblip.com (KV cb8fd24c…, secrets set; SLACK_CLIENT_SECRET is a placeholder until the Slack app exists)
+- Next: Slack app creds, npm publish, real-world dogfood with Claude Code hooks
