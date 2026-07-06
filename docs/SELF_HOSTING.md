@@ -5,11 +5,20 @@ database, no queue, no cron. Cloudflare's free tier covers a team comfortably.
 
 What the relay stores (KV only):
 
-- `pair:{code}` — pairing codes, expire after 15 minutes
-- `device:{sha256(token)}` — device records: your Slack user/team ids plus an
-  AES-GCM-encrypted Slack token. The device token itself is never stored, only its
-  SHA-256 hash.
-- `rl:…` — rate-limit counters, expire after 2 minutes
+- `pair:{code}` — pairing records: `{deviceId, pollSecretHash, status, deviceToken?,
+  team?}`, single-use, expire after 15 minutes. `deviceToken` is the plaintext device
+  token and exists only during the OAuth → CLI handover: it is handed to the CLI once
+  (single-use, with a 60-second delivery grace) and gone within the 15-minute TTL even
+  if the CLI never polls. Outside that handshake window the device token is never
+  stored, only its SHA-256 hash.
+- `pairdev:{deviceId}` — pairing code, keyed by device for polling, expires after
+  15 minutes
+- `pairstate:{nonce}` — OAuth CSRF state → pairing code, expires after 10 minutes
+- `device:{sha256(token)}` — device records: `{slackUserId, teamId, teamName,
+  encToken, createdAt, lastSeenAt, provisional?}`. The Slack token (`encToken`) is
+  AES-GCM encrypted at rest. A record that is never used after pairing stays
+  provisional and expires after 24 hours.
+- `rl:{scope}:{key}:{minute}` — rate-limit counters, expire after 2 minutes
 
 ## Prerequisites
 
@@ -99,9 +108,13 @@ Pushes to `main` auto-deploy via `.github/workflows/deploy.yml` once you add
 ## 7. Point the CLI at your relay
 
 ```bash
-agentblip setup
-# choose "self-hosted" → enter https://your.domain
+agentblip setup --relay-url https://your.domain
 ```
+
+Or run plain `agentblip setup`, choose **relay** at the mode select
+(relay / slack / console), and enter `https://your.domain` at the **Relay URL**
+prompt (it defaults to `https://agentblip.com`). The `AGENTBLIP_RELAY_URL`
+environment variable overrides the configured `relayUrl` at runtime.
 
 Everyone on your team does the same — one relay serves any number of devices and
 Slack users.

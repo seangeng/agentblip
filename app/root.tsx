@@ -72,6 +72,9 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-2xl flex-col items-start justify-center gap-4 px-6">
+      {/* the root route has no meta export, so without this the error page
+          ships with no document <title>; React 19 hoists it into <head> */}
+      <title>{`${heading} — agentblip`}</title>
       <h1 className="font-mono text-3xl font-semibold tracking-tight text-phosphor-400">
         {heading}
       </h1>

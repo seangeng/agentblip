@@ -100,6 +100,11 @@ plain JSON:
   // Local daemon port (loopback only).
   "port": 4519,
 
+  // Relay the daemon pushes through in relay mode. `agentblip setup` asks for
+  // it at the "Relay URL" prompt (default https://agentblip.com), or takes it
+  // via --relay-url. The AGENTBLIP_RELAY_URL env var overrides it at runtime.
+  "relayUrl": "https://agentblip.com",
+
   // Strings or regexes scrubbed from activity/project text before it can reach
   // your status. Case-insensitive; strings that don't compile as regexes match
   // literally. Matches become "…".
@@ -160,6 +165,7 @@ agent session:
 
 ```bash
 curl -X POST http://127.0.0.1:4519/event \
+  -H "authorization: Bearer $(cat ~/.local/state/agentblip/daemon.secret)" \
   -H "content-type: application/json" \
   -d '{
     "source": "my-tool",
@@ -170,6 +176,9 @@ curl -X POST http://127.0.0.1:4519/event \
   }'
 ```
 
+The daemon auto-generates that bearer secret (`0600`, `XDG_STATE_HOME`
+respected); every endpoint except `GET /health` requires it.
+
 Send `{"kind": "end"}` with the same `source` + `sessionId` when it finishes. Full
 schema, event semantics, staleness rules, and adapter-writing guide:
 [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
@@ -178,7 +187,7 @@ schema, event semantics, staleness rules, and adapter-writing guide:
 
 | Command | Does |
 |---|---|
-| `agentblip setup` | Interactive setup: connect Slack (hosted, self-hosted, or direct token) + install agent hooks |
+| `agentblip setup` | Interactive setup: pick a mode (relay / slack / console) + install agent hooks. Relay mode prompts for the Relay URL (default `https://agentblip.com` — enter your own domain to self-host); `--relay-url <url>` skips the prompt |
 | `agentblip start [--detach]` | Run the daemon, foreground or in the background |
 | `agentblip stop` | Stop the background daemon |
 | `agentblip status [--json]` | Show daemon state, live sessions, and the current status |
@@ -192,8 +201,9 @@ schema, event semantics, staleness rules, and adapter-writing guide:
 ## Self-hosting & direct mode
 
 The relay is one Cloudflare Worker with one KV namespace — fork the repo, create the
-namespace and two secrets, deploy, and point `agentblip setup` at your own domain. The
-full walkthrough is in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md). If you'd rather
+namespace and two secrets, deploy, and point the CLI at your own domain with
+`agentblip setup --relay-url https://your.domain` (or enter it at the Relay URL
+prompt). The full walkthrough is in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md). If you'd rather
 run no server at all, direct mode has the daemon call Slack's API straight from your
 machine with your own Slack app's user token — no relay in the loop.
 

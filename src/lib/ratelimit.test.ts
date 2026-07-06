@@ -60,4 +60,29 @@ describe("rateLimit", () => {
     const bucket = Math.floor(T0 / 60_000);
     expect(ttls.get(`rl:status:deadbeef:${bucket}`)).toBe(120);
   });
+
+  it("treats a failed counter put as allowed (soft limiter)", async () => {
+    const { kv } = createKv();
+    const throwingPut: KVStore = {
+      ...kv,
+      async put() {
+        throw new Error("KV PUT failed: 429 too many writes to the same key");
+      },
+    };
+    // e.g. a same-second burst exceeding KV's 1 write/sec/key — never a 500
+    expect(await rateLimit(throwingPut, "pairstart", "1.2.3.4", 5, T0)).toBe(true);
+  });
+
+  it("still blocks over-limit requests when the counter put fails", async () => {
+    const { kv, data } = createKv();
+    const bucket = Math.floor(T0 / 60_000);
+    data.set(`rl:s:k:${bucket}`, "5");
+    const throwingPut: KVStore = {
+      ...kv,
+      async put() {
+        throw new Error("boom");
+      },
+    };
+    expect(await rateLimit(throwingPut, "s", "k", 5, T0)).toBe(false);
+  });
 });

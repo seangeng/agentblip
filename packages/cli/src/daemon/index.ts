@@ -5,6 +5,7 @@ import { codexSessionsDir, createCodexWatcher } from "../adapters/codex";
 import type { CodexWatcher } from "../adapters/codex";
 import { formatOptionsFromConfig } from "../lib/config";
 import type { Config } from "../lib/config";
+import { createDaemonSecret } from "../lib/daemon-auth";
 import { stateDir } from "../lib/paths";
 import {
   isProcessAlive,
@@ -23,7 +24,6 @@ export async function runDaemon(config: Config): Promise<void> {
     throw new Error(`daemon already running (pid ${existingPid}) — \`agentblip stop\` first`);
   }
   fs.mkdirSync(stateDir(), { recursive: true });
-  writePidFile(process.pid);
 
   const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] ${message}`);
@@ -50,7 +50,12 @@ export async function runDaemon(config: Config): Promise<void> {
     pusher.notify();
   };
 
+  // Written before listen: the file must exist by the time /health answers,
+  // and a stale secret from a failed start is harmless.
+  const secret = createDaemonSecret();
+
   const server = createDaemonServer({
+    secret,
     applyEvent,
     getState: () => {
       store.sweep();
@@ -59,8 +64,10 @@ export async function runDaemon(config: Config): Promise<void> {
         snapshot,
         formatted: formatStatus(snapshot, formatOpts),
         paused: pusher.paused,
+        lastError: pusher.lastError,
       };
     },
+    getLastError: () => pusher.lastError,
     pause: () => pusher.pause(),
     resume: () => {
       pusher.resume();
@@ -75,43 +82,54 @@ export async function runDaemon(config: Config): Promise<void> {
     });
   });
 
-  pusher.start();
+  // Only now — after the sink was created and the port is bound — claim the
+  // pidfile: a failed or racing start must never clobber the live daemon's.
+  writePidFile(process.pid);
 
-  let watcher: CodexWatcher | undefined;
-  const sessionsDir = config.adapters.codex.sessionsDir ?? codexSessionsDir();
-  if (config.adapters.codex.enabled && fs.existsSync(sessionsDir)) {
-    watcher = createCodexWatcher(sessionsDir, applyEvent);
-    log(`watching codex sessions in ${sessionsDir}`);
+  try {
+    pusher.start();
+
+    let watcher: CodexWatcher | undefined;
+    const sessionsDir = config.adapters.codex.sessionsDir ?? codexSessionsDir();
+    if (config.adapters.codex.enabled && fs.existsSync(sessionsDir)) {
+      watcher = createCodexWatcher(sessionsDir, applyEvent, log);
+      log(`watching codex sessions in ${sessionsDir}`);
+    }
+
+    log(
+      `agentblip daemon listening on 127.0.0.1:${config.port} (sink: ${sink.name}, granularity: ${config.granularity})`,
+    );
+
+    let shuttingDown = false;
+    const shutdown = (signal: string): void => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      log(`${signal} received — clearing status and shutting down`);
+      void (async () => {
+        server.close();
+        try {
+          await watcher?.close();
+        } catch {
+          // best effort
+        }
+        try {
+          await pusher.shutdown();
+        } catch {
+          // best effort
+        }
+        removePidFile();
+        process.exit(0);
+      })();
+    };
+    process.on("SIGINT", () => shutdown("SIGINT"));
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("unhandledRejection", (reason) => {
+      log(`unhandled rejection: ${String(reason)}`);
+    });
+  } catch (err) {
+    // Startup failed after the pidfile was claimed — clean up, but only our
+    // own claim (a concurrent daemon may have re-written it).
+    if (readPidFile() === process.pid) removePidFile();
+    throw err;
   }
-
-  log(
-    `agentblip daemon listening on 127.0.0.1:${config.port} (sink: ${sink.name}, granularity: ${config.granularity})`,
-  );
-
-  let shuttingDown = false;
-  const shutdown = (signal: string): void => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    log(`${signal} received — clearing status and shutting down`);
-    void (async () => {
-      server.close();
-      try {
-        await watcher?.close();
-      } catch {
-        // best effort
-      }
-      try {
-        await pusher.shutdown();
-      } catch {
-        // best effort
-      }
-      removePidFile();
-      process.exit(0);
-    })();
-  };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("unhandledRejection", (reason) => {
-    log(`unhandled rejection: ${String(reason)}`);
-  });
 }

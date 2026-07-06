@@ -34,6 +34,10 @@ program
 program
   .command("setup")
   .description("Connect Slack, pick a privacy level, and install agent hooks")
+  .option(
+    "--relay-url <url>",
+    "relay to pair with (self-hosters: your own Worker URL)",
+  )
   .action(wrap(runSetup));
 
 program

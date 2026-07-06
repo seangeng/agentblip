@@ -29,6 +29,15 @@ export async function runUnlink(): Promise<void> {
     );
   }
   delete config.deviceToken;
+  const wasRelay = config.mode === "relay";
+  if (wasRelay) {
+    // Relay mode without a token can't create a sink — a daemon (auto)started
+    // in that state just crashes. Fall back to the dry-run sink.
+    config.mode = "console";
+  }
   saveConfig(config);
   console.log(green(`device token removed from ${configPath()}`));
+  if (wasRelay) {
+    console.log(dim("mode set to console — run `agentblip setup` to pair again"));
+  }
 }

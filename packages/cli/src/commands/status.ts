@@ -32,6 +32,9 @@ export async function runStatus(opts: StatusOptions): Promise<void> {
   if (state.paused) {
     console.log(yellow("paused — status updates suspended (`agentblip resume`)"));
   }
+  if (state.lastError) {
+    console.log(yellow(`sink error: ${state.lastError}`));
+  }
   const formatted = state.formatted;
   if (formatted) {
     const expires = formatted.expirationSec

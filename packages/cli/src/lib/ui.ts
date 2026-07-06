@@ -57,6 +57,63 @@ export function ask(question: string, defaultValue?: string): Promise<string> {
   });
 }
 
+/**
+ * Reads a secret without echoing it — nothing lands in scrollback, terminal
+ * logs, or screen recordings. Raw-mode asterisks on a TTY; a plain (never
+ * echoed anyway) line read otherwise.
+ */
+export function askSecret(question: string): Promise<string> {
+  process.stdout.write(`${question} `);
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({ input: stdin });
+      rl.once("line", (line) => {
+        rl.close();
+        resolve(line.trim());
+      });
+    });
+  }
+  return new Promise((resolve) => {
+    let value = "";
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    const done = (): void => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener("data", onData);
+      process.stdout.write("\n");
+      resolve(value.trim());
+    };
+    const onData = (chunk: string): void => {
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") {
+          done();
+          return;
+        }
+        if (ch === "\u0003") {
+          // ctrl-c
+          stdin.setRawMode(false);
+          process.stdout.write("\n");
+          process.exit(130);
+        }
+        if (ch === "\u007f" || ch === "\b") {
+          if (value) {
+            value = value.slice(0, -1);
+            process.stdout.write("\b \b");
+          }
+          continue;
+        }
+        if (ch < " ") continue; // ignore other control characters
+        value += ch;
+        process.stdout.write("*");
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
 export async function confirm(question: string, defaultYes = true): Promise<boolean> {
   const answer = await ask(`${question} ${dim(defaultYes ? "[Y/n]" : "[y/N]")}`);
   if (!answer) return defaultYes;

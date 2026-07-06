@@ -32,7 +32,7 @@ export async function runEmit(opts: EmitOptions): Promise<void> {
   }
   if (!(await ensureDaemon(config))) {
     throw new Error(
-      `daemon not running on 127.0.0.1:${config.port} and autoStartDaemon is off — \`agentblip start --detach\``,
+      `daemon not running on 127.0.0.1:${config.port} and could not be auto-started — \`agentblip start --detach\``,
     );
   }
   await postEvent(config.port, parsed.data);

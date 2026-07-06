@@ -2,31 +2,42 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pairStartResponseSchema, type PairPollResponse } from "@agentblip/core";
 import type { Env } from "../env";
 import { aesGcmDecrypt, aesGcmEncrypt, sha256hex } from "../lib/crypto";
-import { getDeviceRecord, putDeviceRecord, type KVStore } from "../lib/kv";
+import {
+  DEVICE_PROVISIONAL_TTL_SEC,
+  PAIR_DELIVERED_TTL_SEC,
+  getDeviceRecord,
+  putDeviceRecord,
+  type DeviceRecord,
+  type KVStore,
+} from "../lib/kv";
 import { api } from "./index";
 
 const BASE64_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 
 function createKv() {
   const data = new Map<string, string>();
+  const ttls = new Map<string, number | undefined>();
+  const writes = new Map<string, number>();
   const kv: KVStore = {
     async get(key) {
       return data.get(key) ?? null;
     },
-    async put(key, value) {
+    async put(key, value, options) {
       data.set(key, value);
+      ttls.set(key, options?.expirationTtl);
+      writes.set(key, (writes.get(key) ?? 0) + 1);
     },
     async delete(key) {
       data.delete(key);
+      ttls.delete(key);
     },
   };
-  return { kv, data };
+  return { kv, data, ttls, writes };
 }
 
 function makeEnv(kv: KVStore): Env {
   return {
     STORE: kv as unknown as KVNamespace,
-    ASSETS: {} as unknown as Fetcher,
     BASE_URL: "https://agentblip.com",
     SLACK_CLIENT_ID: "client-id",
     SLACK_CLIENT_SECRET: "client-secret",
@@ -72,17 +83,28 @@ const jsonInit = (body: unknown, headers: Record<string, string> = {}): RequestI
   body: JSON.stringify(body),
 });
 
-async function seedDevice(kv: KVStore, xoxp = "xoxp-seeded") {
+async function seedDevice(
+  kv: KVStore,
+  xoxp = "xoxp-seeded",
+  overrides: Partial<DeviceRecord> = {},
+  ttlSec?: number,
+) {
   const token = `ab_${"a".repeat(64)}`;
   const tokenHash = await sha256hex(token);
-  await putDeviceRecord(kv, tokenHash, {
-    slackUserId: "U123",
-    teamId: "T123",
-    teamName: "Acme",
-    encToken: await aesGcmEncrypt(xoxp, BASE64_KEY),
-    createdAt: Date.now(),
-    lastSeenAt: Date.now(),
-  });
+  await putDeviceRecord(
+    kv,
+    tokenHash,
+    {
+      slackUserId: "U123",
+      teamId: "T123",
+      teamName: "Acme",
+      encToken: await aesGcmEncrypt(xoxp, BASE64_KEY),
+      createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+      ...overrides,
+    },
+    ttlSec,
+  );
   return { token, tokenHash };
 }
 
@@ -96,8 +118,8 @@ describe("GET /health", () => {
 });
 
 describe("pair flow", () => {
-  it("start → install → callback → poll returns the token once, then expired", async () => {
-    const { kv } = createKv();
+  it("start → install → callback → poll delivers the token, grace re-poll, then expired", async () => {
+    const { kv, data, ttls, writes } = createKv();
     const env = makeEnv(kv);
 
     // 1. CLI starts pairing
@@ -168,21 +190,51 @@ describe("pair flow", () => {
     expect(complete.team).toBe("Acme Inc");
     expect(complete.deviceToken).toMatch(/^ab_[0-9a-f]{64}$/);
 
-    // Device record exists under sha256(token) with the xoxp encrypted at rest
+    // Device record exists under sha256(token) with the xoxp encrypted at rest,
+    // provisional (with a self-expiry TTL) until the first authenticated /status
     const tokenHash = await sha256hex(complete.deviceToken ?? "");
     const device = await getDeviceRecord(kv, tokenHash);
     expect(device?.slackUserId).toBe("U777");
     expect(device?.teamName).toBe("Acme Inc");
     expect(device?.encToken).not.toContain("xoxp-from-slack");
     expect(await aesGcmDecrypt(device?.encToken ?? "", BASE64_KEY)).toBe("xoxp-from-slack");
+    expect(device?.provisional).toBe(true);
+    expect(ttls.get(`device:${tokenHash}`)).toBe(DEVICE_PROVISIONAL_TTL_SEC);
 
-    // 6. Second poll → expired (single-use)
+    // Delivery re-put the pair record + index with the short grace TTL
+    expect(ttls.get(`pair:${start.code}`)).toBe(PAIR_DELIVERED_TTL_SEC);
+    expect(ttls.get(`pairdev:${start.deviceId}`)).toBe(PAIR_DELIVERED_TTL_SEC);
+    const pairWritesAfterDelivery = writes.get(`pair:${start.code}`);
+
+    // 6. Re-poll within the grace window (dropped response) → same token again,
+    // without re-putting the record (the grace TTL is not refreshed)
     const againRes = await api.request(
       "/pair/poll",
       jsonInit({ deviceId: start.deviceId, pollSecret: start.pollSecret }),
       env,
     );
-    expect(((await againRes.json()) as PairPollResponse).status).toBe("expired");
+    const again = (await againRes.json()) as PairPollResponse;
+    expect(again.status).toBe("complete");
+    expect(again.deviceToken).toBe(complete.deviceToken);
+    expect(writes.get(`pair:${start.code}`)).toBe(pairWritesAfterDelivery);
+
+    // A wrong pollSecret still can't replay the delivered token
+    const replay = await api.request(
+      "/pair/poll",
+      jsonInit({ deviceId: start.deviceId, pollSecret: "f".repeat(32) }),
+      env,
+    );
+    expect(((await replay.json()) as PairPollResponse).status).toBe("expired");
+
+    // 7. After the grace TTL lapses (simulated — the mock ignores TTLs) → expired
+    data.delete(`pair:${start.code}`);
+    data.delete(`pairdev:${start.deviceId}`);
+    const expiredRes = await api.request(
+      "/pair/poll",
+      jsonInit({ deviceId: start.deviceId, pollSecret: start.pollSecret }),
+      env,
+    );
+    expect(((await expiredRes.json()) as PairPollResponse).status).toBe("expired");
   });
 
   it("rate-limits pair/start to 5/min per IP", async () => {
@@ -229,6 +281,76 @@ describe("pair flow", () => {
     expect(res.headers.get("location")).toBe("/pair?error=expired");
     const noCode = await api.request("/slack/install", {}, env);
     expect(noCode.headers.get("location")).toBe("/pair?error=expired");
+  });
+
+  it("install normalizes the pairing code (case, whitespace, separators) before lookup", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const startRes = await api.request("/pair/start", { method: "POST" }, env);
+    const start = pairStartResponseSchema.parse(await startRes.json());
+
+    // lowercase, padded, dashed — the way a human might type it with JS disabled
+    const messy = ` ${start.code.slice(0, 4).toLowerCase()}-${start.code.slice(4).toLowerCase()} `;
+    const res = await api.request(`/slack/install?code=${encodeURIComponent(messy)}`, {}, env);
+    expect(res.status).toBe(302);
+    const authorizeUrl = new URL(res.headers.get("location") ?? "");
+    expect(authorizeUrl.hostname).toBe("slack.com");
+
+    // the state nonce maps to the normalized code, so the callback completes
+    const state = authorizeUrl.searchParams.get("state");
+    slackResponder = (url) =>
+      url.includes("oauth.v2.access")
+        ? {
+            ok: true,
+            authed_user: { id: "U777", access_token: "xoxp-from-slack" },
+            team: { id: "T777", name: "Acme Inc" },
+          }
+        : { ok: true };
+    const cbRes = await api.request(`/slack/callback?code=slack-code&state=${state}`, {}, env);
+    expect(cbRes.headers.get("location")).toBe("/pair?done=1&team=Acme%20Inc");
+
+    const pollRes = await api.request(
+      "/pair/poll",
+      jsonInit({ deviceId: start.deviceId, pollSecret: start.pollSecret }),
+      env,
+    );
+    expect(((await pollRes.json()) as PairPollResponse).status).toBe("complete");
+  });
+
+  it("install bounces cross-site navigations to /pair for human confirmation", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const startRes = await api.request("/pair/start", { method: "POST" }, env);
+    const start = pairStartResponseSchema.parse(await startRes.json());
+
+    const crossSite = await api.request(
+      `/slack/install?code=${start.code}`,
+      { headers: { "Sec-Fetch-Site": "cross-site" } },
+      env,
+    );
+    expect(crossSite.status).toBe(302);
+    expect(crossSite.headers.get("location")).toBe(`/pair?code=${start.code}`);
+
+    // the /pair form submit is same-origin and proceeds to Slack
+    const sameOrigin = await api.request(
+      `/slack/install?code=${start.code}`,
+      { headers: { "Sec-Fetch-Site": "same-origin" } },
+      env,
+    );
+    expect(new URL(sameOrigin.headers.get("location") ?? "").hostname).toBe("slack.com");
+  });
+
+  it("marks install and callback responses uncacheable", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const startRes = await api.request("/pair/start", { method: "POST" }, env);
+    const start = pairStartResponseSchema.parse(await startRes.json());
+
+    const installRes = await api.request(`/slack/install?code=${start.code}`, {}, env);
+    expect(installRes.headers.get("cache-control")).toBe("no-store");
+
+    const cbRes = await api.request(`/slack/callback?code=x&state=${"0".repeat(32)}`, {}, env);
+    expect(cbRes.headers.get("cache-control")).toBe("no-store");
   });
 
   it("callback rejects a missing/unknown state nonce", async () => {
@@ -380,6 +502,64 @@ describe("POST /status", () => {
     );
     expect(res.status).toBe(429);
     expect(fetchCalls).toHaveLength(0);
+  });
+
+  it("promotes a provisional device record to permanent on first authenticated use", async () => {
+    const { kv, ttls } = createKv();
+    const env = makeEnv(kv);
+    // fresh lastSeenAt: promotion must happen regardless of the hourly refresh
+    const { token, tokenHash } = await seedDevice(
+      kv,
+      "xoxp-live",
+      { provisional: true },
+      DEVICE_PROVISIONAL_TTL_SEC,
+    );
+    expect(ttls.get(`device:${tokenHash}`)).toBe(DEVICE_PROVISIONAL_TTL_SEC);
+
+    const res = await api.request(
+      "/status",
+      jsonInit({ status }, { authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    const device = await getDeviceRecord(kv, tokenHash);
+    expect(device?.provisional).toBeUndefined();
+    expect(JSON.stringify(device)).not.toContain("provisional");
+    expect(ttls.get(`device:${tokenHash}`)).toBeUndefined(); // re-put without TTL
+  });
+
+  it("does not rewrite a permanent record when lastSeenAt is fresh", async () => {
+    const { kv, writes } = createKv();
+    const env = makeEnv(kv);
+    const { token, tokenHash } = await seedDevice(kv);
+    expect(writes.get(`device:${tokenHash}`)).toBe(1);
+
+    const res = await api.request(
+      "/status",
+      jsonInit({ status }, { authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(writes.get(`device:${tokenHash}`)).toBe(1); // no extra KV write
+  });
+
+  it("refreshes lastSeenAt when it is more than an hour old", async () => {
+    const { kv, ttls } = createKv();
+    const env = makeEnv(kv);
+    const stale = Date.now() - 2 * 3_600_000;
+    const { token, tokenHash } = await seedDevice(kv, "xoxp-seeded", { lastSeenAt: stale });
+
+    const res = await api.request(
+      "/status",
+      jsonInit({ status }, { authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    const device = await getDeviceRecord(kv, tokenHash);
+    expect(device?.lastSeenAt).toBeGreaterThan(stale);
+    expect(ttls.get(`device:${tokenHash}`)).toBeUndefined(); // still permanent
   });
 });
 

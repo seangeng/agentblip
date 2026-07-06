@@ -171,6 +171,13 @@ export default function Pair({ loaderData }: Route.ComponentProps) {
               <p id="pair-code-hint" className="font-mono text-xs text-fg-faint">
                 8 characters · expires 15 minutes after setup starts
               </p>
+              {code ? (
+                /* code arrived via the URL — never auto-continue, and warn
+                   against codes pasted from links you didn't generate */
+                <p className="text-sm leading-relaxed text-signal-300">
+                  Only continue if this code matches what your terminal shows.
+                </p>
+              ) : null}
               <button
                 type="submit"
                 className="flex items-center justify-center gap-2.5 rounded-xl bg-phosphor-500 px-5 py-3.5 font-mono text-sm font-semibold text-ink-950 transition-colors hover:bg-phosphor-400"

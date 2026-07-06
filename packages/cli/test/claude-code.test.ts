@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapHookInput } from "../src/adapters/claude-code";
+import { claudeHookCommand, mapHookInput } from "../src/adapters/claude-code";
 
 const input = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   hook_event_name: "PreToolUse",
@@ -76,8 +76,20 @@ describe("mapHookInput", () => {
     expect(event?.activity).toBeUndefined();
   });
 
-  it("maps PostToolUse to heartbeat", () => {
-    expect(mapHookInput(input({ hook_event_name: "PostToolUse" }))?.kind).toBe("heartbeat");
+  it("maps PostToolUse to working so approval of a permission prompt flips waiting back", () => {
+    // heartbeat would preserve "waiting" after the user approves a permission
+    // prompt — tool completion must demote it to working.
+    const event = mapHookInput(input({ hook_event_name: "PostToolUse" }));
+    expect(event?.kind).toBe("working");
+    expect(event?.activity).toBeUndefined();
+  });
+
+  it("labels PostToolUse with the completed tool so no stale label is inherited", () => {
+    const event = mapHookInput(
+      input({ hook_event_name: "PostToolUse", tool_name: "Bash" }),
+    );
+    expect(event?.kind).toBe("working");
+    expect(event?.activity).toBe("running commands");
   });
 
   it("maps Notification to waiting/needs my input", () => {
@@ -112,5 +124,16 @@ describe("mapHookInput", () => {
     expect(mapHookInput(42)).toBeNull();
     expect(mapHookInput({ hook_event_name: "Stop" })).toBeNull(); // missing session_id
     expect(mapHookInput({ session_id: "s" })).toBeNull(); // missing event name
+  });
+});
+
+describe("claudeHookCommand", () => {
+  it("writes a quoted absolute invocation that keeps the agentblip marker", () => {
+    const command = claudeHookCommand();
+    // absolute node + entry paths, quoted for spaces, PATH-independent
+    expect(command.startsWith(`"${process.execPath}" "`)).toBe(true);
+    expect(command.endsWith('" hook claude-code')).toBe(true);
+    // install idempotency checks command.includes("agentblip")
+    expect(command).toContain("agentblip");
   });
 });

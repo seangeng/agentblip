@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CLAUDE_HOOK_EVENTS,
   areClaudeHooksInstalled,
+  claudeHookCommand,
   installClaudeHooks,
 } from "../src/adapters/claude-code";
 
@@ -38,7 +39,7 @@ describe("installClaudeHooks", () => {
     for (const event of CLAUDE_HOOK_EVENTS) {
       const entries = settings.hooks[event];
       expect(entries).toHaveLength(1);
-      expect(entries?.[0]?.hooks[0]?.command).toBe("agentblip hook claude-code");
+      expect(entries?.[0]?.hooks[0]?.command).toBe(claudeHookCommand());
     }
     // only tool events take a matcher
     expect(settings.hooks.PreToolUse?.[0]?.matcher).toBe("*");
@@ -66,9 +67,7 @@ describe("installClaudeHooks", () => {
     expect(settings.permissions).toEqual({ allow: ["Bash(ls:*)"] });
     expect(settings.hooks.PreToolUse).toHaveLength(2);
     expect(settings.hooks.PreToolUse?.[0]?.hooks[0]?.command).toBe("echo hi");
-    expect(settings.hooks.PreToolUse?.[1]?.hooks[0]?.command).toBe(
-      "agentblip hook claude-code",
-    );
+    expect(settings.hooks.PreToolUse?.[1]?.hooks[0]?.command).toBe(claudeHookCommand());
   });
 
   it("is idempotent — a second run changes nothing", () => {
@@ -78,6 +77,22 @@ describe("installClaudeHooks", () => {
     const second = installClaudeHooks(settingsPath);
     expect(second.changed).toBe(false);
     expect(fs.readFileSync(settingsPath, "utf8")).toBe(afterFirst);
+  });
+
+  it("treats a legacy bare-command install as already installed", () => {
+    const legacyHooks: Record<string, unknown> = {};
+    for (const event of CLAUDE_HOOK_EVENTS) {
+      legacyHooks[event] = [
+        { hooks: [{ type: "command", command: "agentblip hook claude-code" }] },
+      ];
+    }
+    const original = JSON.stringify({ hooks: legacyHooks }, null, 2);
+    fs.writeFileSync(settingsPath, original);
+
+    const result = installClaudeHooks(settingsPath);
+    expect(result.changed).toBe(false);
+    expect(fs.readFileSync(settingsPath, "utf8")).toBe(original);
+    expect(areClaudeHooksInstalled(settingsPath)).toBe(true);
   });
 
   it("backs up the original file exactly once", () => {

@@ -3,15 +3,17 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { pairPollResponseSchema, pairStartResponseSchema } from "@agentblip/core";
 import {
-  CODEX_NOTIFY_LINE,
   codexConfigPath,
+  codexNotifyLine,
   installCodexNotify,
 } from "../adapters/codex";
 import { claudeSettingsPath, installClaudeHooks } from "../adapters/claude-code";
 import { loadConfigSafe, saveConfig } from "../lib/config";
+import { isDaemonUp } from "../lib/daemon-client";
 import { configPath } from "../lib/paths";
 import {
   ask,
+  askSecret,
   bold,
   confirm,
   cyan,
@@ -101,11 +103,31 @@ async function pairDevice(relayUrl: string): Promise<string> {
   throw new Error("pairing expired — run `agentblip setup` again");
 }
 
-export async function runSetup(): Promise<void> {
+/** Validates a relay URL (prompt or --relay-url flag). Throws on garbage. */
+export function resolveRelayUrl(input: string): string {
+  const trimmed = input.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`invalid relay URL: ${trimmed || "(empty)"}`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`invalid relay URL: ${trimmed} — must be http(s)`);
+  }
+  return trimmed;
+}
+
+export interface SetupOptions {
+  relayUrl?: string;
+}
+
+export async function runSetup(opts: SetupOptions = {}): Promise<void> {
   console.log(bold("agentblip setup"));
   console.log(dim("your Slack status, synced with your local AI agent sessions\n"));
 
   const config = loadConfigSafe();
+  if (opts.relayUrl) config.relayUrl = resolveRelayUrl(opts.relayUrl);
 
   const modes = ["relay", "slack", "console"] as const;
   config.mode = await select(
@@ -122,12 +144,19 @@ export async function runSetup(): Promise<void> {
   );
 
   if (config.mode === "relay") {
+    if (!opts.relayUrl) {
+      // Self-hosters point this at their own Worker (docs/SELF_HOSTING.md).
+      config.relayUrl = resolveRelayUrl(
+        await ask("Relay URL (self-hosters: your own Worker):", config.relayUrl),
+      );
+    }
     config.deviceToken = await pairDevice(config.relayUrl);
   } else if (config.mode === "slack") {
     console.log(dim("\n  needs a user token with the users.profile:write scope"));
-    const token = await ask("Paste your Slack user token (xoxp-…):", config.slackToken);
-    if (!token) throw new Error("no Slack token provided");
-    config.slackToken = token;
+    const keepHint = config.slackToken ? " (enter keeps the saved token)" : "";
+    const token = await askSecret(`Paste your Slack user token (xoxp-…)${keepHint}:`);
+    if (token) config.slackToken = token;
+    if (!config.slackToken) throw new Error("no Slack token provided");
   }
 
   const granularities = ["presence", "count", "activity", "off"] as const;
@@ -175,7 +204,7 @@ export async function runSetup(): Promise<void> {
         console.log(
           `  ${yellow("config.toml already sets `notify` — add agentblip manually:")}`,
         );
-        console.log(`    ${CODEX_NOTIFY_LINE}`);
+        console.log(`    ${codexNotifyLine()}`);
       }
     } catch (err) {
       console.log(`  ${red(`could not update config.toml: ${errorMessage(err)}`)}`);
@@ -185,6 +214,15 @@ export async function runSetup(): Promise<void> {
   saveConfig(config);
   console.log("");
   console.log(green(`config saved to ${configPath()}`));
+  if (await isDaemonUp(config.port)) {
+    // The daemon captures its config (sink, token, granularity) at startup —
+    // without a restart the changes above silently never apply.
+    console.log(
+      yellow(
+        `daemon is running with the old config — restart it: ${bold("agentblip stop && agentblip start --detach")}`,
+      ),
+    );
+  }
   console.log("\nnext steps:");
   console.log(`  ${bold("agentblip start --detach")}   run the sync daemon`);
   console.log(`  ${bold("agentblip status")}           see live agent sessions`);

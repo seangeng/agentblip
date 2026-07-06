@@ -76,6 +76,9 @@ export async function runDoctor(opts: DoctorOptions): Promise<void> {
     checks.push(
       ok("daemon", `running (pid ${health.pid}, up ${formatDuration(health.uptimeSec * 1000)})`),
     );
+    if (health.lastError) {
+      checks.push(fail("sink", health.lastError));
+    }
   } catch {
     checks.push(
       warn("daemon", `not running on 127.0.0.1:${cfg.port} — \`agentblip start --detach\``),

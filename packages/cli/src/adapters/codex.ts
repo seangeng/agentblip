@@ -1,12 +1,22 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { watch } from "chokidar";
 import { z } from "zod";
 import type { SessionEvent } from "@agentblip/core";
 
-export const CODEX_NOTIFY_LINE = 'notify = ["agentblip", "hook", "codex"]';
 const MAX_ACTIVITY_LEN = 60;
+
+/**
+ * Absolute notify invocation: GUI-launched agents don't inherit the login-shell
+ * PATH, so a bare `agentblip` may not resolve. import.meta.url is the bundled
+ * CLI entry (dist/index.js) at runtime; JSON strings are valid TOML strings.
+ */
+export function codexNotifyLine(): string {
+  const entry = fileURLToPath(import.meta.url);
+  return `notify = [${JSON.stringify(process.execPath)}, ${JSON.stringify(entry)}, "hook", "codex"]`;
+}
 
 export function codexConfigPath(): string {
   return path.join(os.homedir(), ".codex", "config.toml");
@@ -62,7 +72,7 @@ export function installCodexNotify(configPath = codexConfigPath()): CodexInstall
   if (/^\s*notify\s*=/m.test(text)) {
     return text.includes("agentblip") ? "already-installed" : "manual";
   }
-  const block = `# agentblip: surface Codex turns in your Slack status\n${CODEX_NOTIFY_LINE}\n`;
+  const block = `# agentblip: surface Codex turns in your Slack status\n${codexNotifyLine()}\n`;
   // `notify` must be top-level TOML: if the file has [table] sections, appending
   // would land the key inside the last table — prepend instead.
   const next = /^\s*\[/m.test(text)
@@ -88,6 +98,32 @@ export interface CodexWatcher {
   close(): Promise<void>;
 }
 
+const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Rollout files are `rollout-<timestamp>-<uuid>.jsonl` while the notify hook
+ * keys sessions by the bare thread uuid — extract the trailing uuid so both
+ * paths land on the same `codex:<uuid>` session. Falls back to the basename.
+ */
+export function rolloutSessionId(file: string): string {
+  const base = path.basename(file, ".jsonl");
+  return (UUID_RE.exec(base)?.[0] ?? base).slice(0, 128);
+}
+
+/** Rollouts silent for longer than this can't be a live session. */
+const MAX_ROLLOUT_AGE_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * chokidar `ignored` filter: Codex keeps every rollout ever under YYYY/MM/DD,
+ * so skip stale files instead of holding an fs watch per historical session
+ * (months of use would exhaust inotify/fd limits).
+ */
+export function isIgnoredRollout(file: string, stats?: fs.Stats): boolean {
+  if (!stats?.isFile()) return false;
+  if (!file.endsWith(".jsonl")) return true;
+  return Date.now() - stats.mtimeMs > MAX_ROLLOUT_AGE_MS;
+}
+
 /**
  * Watches the Codex sessions dir: rollout .jsonl writes mean a session is
  * actively working. Turn completion (idle) arrives via the notify hook.
@@ -95,21 +131,27 @@ export interface CodexWatcher {
 export function createCodexWatcher(
   dir: string,
   onEvent: (event: SessionEvent) => void,
+  log: (message: string) => void = () => {},
 ): CodexWatcher {
-  const watcher = watch(dir, { ignoreInitial: true, persistent: true });
+  const watcher = watch(dir, {
+    ignoreInitial: true,
+    persistent: true,
+    ignored: isIgnoredRollout,
+  });
   const emit = (file: string): void => {
     if (!file.endsWith(".jsonl")) return;
     onEvent({
       source: "codex",
-      sessionId: path.basename(file, ".jsonl").slice(0, 128),
+      sessionId: rolloutSessionId(file),
       kind: "working",
       ts: Date.now(),
     });
   };
   watcher.on("add", emit);
   watcher.on("change", emit);
-  watcher.on("error", () => {
-    // transient fs errors must never take the daemon down
+  watcher.on("error", (err) => {
+    // transient fs errors must never take the daemon down — but say so
+    log(`codex watcher error: ${err instanceof Error ? err.message : String(err)}`);
   });
   return { close: () => watcher.close() };
 }

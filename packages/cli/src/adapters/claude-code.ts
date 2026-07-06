@@ -1,10 +1,19 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { SessionEvent } from "@agentblip/core";
 
-const HOOK_COMMAND = "agentblip hook claude-code";
+/**
+ * Absolute hook invocation: GUI-launched agents don't inherit the login-shell
+ * PATH, so a bare `agentblip` may not resolve (exit 127 on every hook).
+ * import.meta.url is the bundled CLI entry (dist/index.js) at runtime; both
+ * paths are quoted for spaces.
+ */
+export function claudeHookCommand(): string {
+  return `"${process.execPath}" "${fileURLToPath(import.meta.url)}" hook claude-code`;
+}
 
 /** PreToolUse/PostToolUse hook entries take a matcher; the rest don't. */
 const MATCHER_EVENTS = ["PreToolUse", "PostToolUse"] as const;
@@ -83,7 +92,15 @@ export function mapHookInput(json: unknown, fallbackNow = Date.now()): SessionEv
         activity: toolLabel(input.tool_name, input.tool_input)?.slice(0, 200),
       };
     case "PostToolUse":
-      return { ...base, kind: "heartbeat" };
+      // "working", not heartbeat: after a permission prompt (waiting) is
+      // approved, tool completion is the first signal — it must flip the
+      // state back to working. The fresh tool label avoids inheriting a
+      // stale "needs my input" activity.
+      return {
+        ...base,
+        kind: "working",
+        activity: toolLabel(input.tool_name, input.tool_input)?.slice(0, 200),
+      };
     case "Notification":
       return { ...base, kind: "waiting", activity: "needs my input" };
     case "Stop":
@@ -145,10 +162,11 @@ export function installClaudeHooks(settingsPath = claudeSettingsPath()): HookIns
   settings.hooks = hooks;
 
   let changed = false;
+  const hookCommand = claudeHookCommand();
   for (const event of CLAUDE_HOOK_EVENTS) {
     const existing = hooks[event];
     if (entryListHasAgentblip(existing)) continue;
-    const command = { type: "command", command: HOOK_COMMAND };
+    const command = { type: "command", command: hookCommand };
     const entry = (MATCHER_EVENTS as readonly string[]).includes(event)
       ? { matcher: "*", hooks: [command] }
       : { hooks: [command] };

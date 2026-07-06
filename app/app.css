@@ -16,7 +16,9 @@
 
   --color-fg: #dfeae2;
   --color-fg-muted: #8fa197;
-  --color-fg-faint: #5c6d63;
+  /* WCAG AA: ≥4.5:1 on ink-950/ink-900 and the Slack demo card (#1a1d21) —
+     guarded by app/app.css.test.ts */
+  --color-fg-faint: #788b7f;
 
   /* phosphor green — the blip */
   --color-phosphor-300: #96ffc0;

@@ -59,9 +59,12 @@ export default function Privacy(_: Route.ComponentProps) {
             timestamp — exactly what appears in Slack, nothing more.
           </li>
           <li>
-            Your device token, verified against a SHA-256 hash. The plaintext
-            token is shown once at pairing and only ever stored on your
-            machine.
+            Your device token, verified against a SHA-256 hash. The relay
+            holds the plaintext token only inside the pairing record during
+            the handshake — it is handed to your CLI once (single-use, with a
+            60-second delivery grace) and the record expires within 15
+            minutes either way. After that, the plaintext token lives only on
+            your machine.
           </li>
           <li>
             Standard request metadata (IP address) used transiently for rate
@@ -89,9 +92,15 @@ export default function Privacy(_: Route.ComponentProps) {
               AES-GCM encrypted at rest
             </strong>{" "}
             with a key held only as a Worker secret. A KV dump alone cannot
-            leak tokens.
+            leak Slack tokens. A device record that is never used after
+            pairing is provisional and expires after 24 hours.
           </li>
-          <li>Pairing codes, which expire automatically after 15 minutes.</li>
+          <li>
+            Pairing records, which are single-use and expire automatically
+            after 15 minutes. During the handshake one briefly carries your
+            new device token in plaintext (see above) — that is the only time
+            the relay stores it.
+          </li>
           <li>
             No status history. Each update overwrites your Slack status and is
             not logged or retained by the relay.

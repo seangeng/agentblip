@@ -12,6 +12,10 @@ export interface KVStore {
 
 export const PAIR_TTL_SEC = 900;
 export const PAIR_STATE_TTL_SEC = 600;
+/** Redelivery grace after the first complete poll, so one dropped response isn't fatal. */
+export const PAIR_DELIVERED_TTL_SEC = 60;
+/** Provisional device records self-expire unless promoted on first authenticated use. */
+export const DEVICE_PROVISIONAL_TTL_SEC = 86_400;
 export const RL_TTL_SEC = 120;
 
 /** `pair:{code}` — pending until the Slack OAuth callback completes it. */
@@ -19,8 +23,9 @@ export interface PairRecord {
   deviceId: string;
   pollSecretHash: string; // sha256hex(pollSecret)
   status: "pending" | "complete";
-  deviceToken?: string; // plaintext; lives only between callback and first poll
+  deviceToken?: string; // plaintext; lives only between callback and delivery
   team?: string; // Slack workspace name, for the CLI confirmation line
+  deliveredAt?: number; // epoch ms of first token handover (grace TTL started)
 }
 
 /** `device:{sha256hex(deviceToken)}` — the long-lived link to a Slack user. */
@@ -31,6 +36,7 @@ export interface DeviceRecord {
   encToken: string; // AES-GCM "iv.cipher" of the xoxp user token
   createdAt: number; // epoch ms
   lastSeenAt: number; // epoch ms, refreshed at most hourly
+  provisional?: true; // set at OAuth callback, cleared on first authenticated use
 }
 
 const pairKey = (code: string) => `pair:${code}`;
@@ -112,8 +118,13 @@ export async function putDeviceRecord(
   kv: KVStore,
   tokenHash: string,
   record: DeviceRecord,
+  ttlSec?: number,
 ): Promise<void> {
-  await kv.put(deviceKey(tokenHash), JSON.stringify(record));
+  await kv.put(
+    deviceKey(tokenHash),
+    JSON.stringify(record),
+    ttlSec === undefined ? undefined : { expirationTtl: ttlSec },
+  );
 }
 
 export async function deleteDeviceRecord(kv: KVStore, tokenHash: string): Promise<void> {

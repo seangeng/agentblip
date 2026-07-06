@@ -16,10 +16,10 @@ import {
   timingSafeEqualHex,
 } from "../lib/crypto";
 import {
+  DEVICE_PROVISIONAL_TTL_SEC,
+  PAIR_DELIVERED_TTL_SEC,
   PAIR_TTL_SEC,
   deleteDeviceRecord,
-  deletePairDeviceIndex,
-  deletePairRecord,
   deletePairState,
   getDeviceRecord,
   getPairCodeForDevice,
@@ -42,6 +42,16 @@ const LAST_SEEN_REFRESH_MS = 3_600_000;
 
 /** Slack errors that mean the stored xoxp token is permanently dead. */
 const SLACK_REVOKED_ERRORS = new Set(["invalid_auth", "token_revoked", "account_inactive"]);
+
+/** Pair codes are generated uppercase-only (crypto.ts); normalize human input the same way. */
+function normalizePairCode(raw: string | undefined): string {
+  return (
+    raw
+      ?.trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "") ?? ""
+  );
+}
 
 /** Resolve a `Bearer ab_…` header to its device record, or null when invalid. */
 async function authDevice(
@@ -112,19 +122,47 @@ api.post("/pair/poll", async (c) => {
     return c.json(pending);
   }
 
-  // Single-use: the plaintext token is handed over exactly once.
+  // Near-single-use handover: the first complete poll re-puts the record with
+  // a short grace TTL instead of deleting it, so a dropped response (CLI
+  // timeout, wifi blip) can be retried; after the grace it expires for good.
+  // Replay by anyone else is still blocked by the timing-safe pollSecret check
+  // above, and re-polls don't refresh the TTL (deliveredAt is already set).
   const complete: PairPollResponse = {
     status: "complete",
     deviceToken: record.deviceToken,
     team: record.team,
   };
-  await deletePairRecord(c.env.STORE, code);
-  await deletePairDeviceIndex(c.env.STORE, deviceId);
+  if (record.deliveredAt === undefined) {
+    const delivered = { ...record, deliveredAt: Date.now() };
+    await putPairRecord(c.env.STORE, code, delivered, PAIR_DELIVERED_TTL_SEC);
+    await putPairDeviceIndex(c.env.STORE, deviceId, code, PAIR_DELIVERED_TTL_SEC);
+  }
   return c.json(complete);
 });
 
+// OAuth responses carry codes/state in URLs — never let them be cached.
+api.use("/slack/*", async (c, next) => {
+  await next();
+  c.res.headers.set("Cache-Control", "no-store");
+});
+
 api.get("/slack/install", async (c) => {
-  const code = c.req.query("code");
+  const code = normalizePairCode(c.req.query("code"));
+
+  // Soft same-origin check: a cross-site navigation (install link embedded in
+  // another site/webmail) is bounced to /pair so a human confirms the code
+  // there — the /pair form submit is same-origin and passes. Direct
+  // navigations (CLI-printed links, address bar) send Sec-Fetch-Site: none or
+  // nothing and are allowed.
+  // Residual risk (accepted): the pairing code alone binds whoever completes
+  // Slack OAuth to the CLI that started pairing, so a phisher holding a
+  // pending code can still lure a victim through /pair into authorizing it.
+  // The primary mitigation lives on /pair (no auto-submit + warning copy),
+  // bounded by the 15-minute code TTL.
+  if (c.req.header("Sec-Fetch-Site") === "cross-site") {
+    return c.redirect(code ? `/pair?code=${code}` : "/pair");
+  }
+
   const record = code ? await getPairRecord(c.env.STORE, code) : null;
   if (!code || !record || record.status !== "pending") {
     return c.redirect("/pair?error=expired");
@@ -163,14 +201,23 @@ api.get("/slack/callback", async (c) => {
 
   const deviceToken = `${DEVICE_TOKEN_PREFIX}${randomHex(64)}`;
   const now = Date.now();
-  await putDeviceRecord(c.env.STORE, await sha256hex(deviceToken), {
-    slackUserId: exchange.slackUserId,
-    teamId: exchange.teamId,
-    teamName: exchange.teamName,
-    encToken: await aesGcmEncrypt(exchange.accessToken, c.env.TOKEN_ENCRYPTION_KEY),
-    createdAt: now,
-    lastSeenAt: now,
-  });
+  // Provisional until the CLI proves it holds the token (first authenticated
+  // /status promotes it): if setup is abandoned before the poll completes, the
+  // record self-expires instead of orphaning an encrypted xoxp in KV forever.
+  await putDeviceRecord(
+    c.env.STORE,
+    await sha256hex(deviceToken),
+    {
+      slackUserId: exchange.slackUserId,
+      teamId: exchange.teamId,
+      teamName: exchange.teamName,
+      encToken: await aesGcmEncrypt(exchange.accessToken, c.env.TOKEN_ENCRYPTION_KEY),
+      createdAt: now,
+      lastSeenAt: now,
+      provisional: true,
+    },
+    DEVICE_PROVISIONAL_TTL_SEC,
+  );
 
   await putPairRecord(c.env.STORE, pairingCode, {
     ...record,
@@ -217,8 +264,12 @@ api.post("/status", async (c) => {
   }
 
   const now = Date.now();
-  if (now - device.lastSeenAt >= LAST_SEEN_REFRESH_MS) {
-    await putDeviceRecord(c.env.STORE, tokenHash, { ...device, lastSeenAt: now });
+  // First authenticated use promotes a provisional record to permanent (re-put
+  // without TTL or flag); afterwards lastSeenAt is refreshed at most hourly.
+  if (device.provisional || now - device.lastSeenAt >= LAST_SEEN_REFRESH_MS) {
+    const permanent: DeviceRecord = { ...device, lastSeenAt: now };
+    delete permanent.provisional;
+    await putDeviceRecord(c.env.STORE, tokenHash, permanent);
   }
   return c.json({ ok: true });
 });

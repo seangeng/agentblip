@@ -1,7 +1,6 @@
 export interface Env {
-  // Bindings
+  // Bindings (client assets are served by the vite plugin — no ASSETS binding)
   STORE: KVNamespace;
-  ASSETS: Fetcher;
 
   // Vars
   BASE_URL: string;

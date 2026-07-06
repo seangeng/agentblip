@@ -29,3 +29,13 @@ export function spawnLockPath(): string {
 export function logFilePath(): string {
   return path.join(stateDir(), "daemon.log");
 }
+
+/** Per-daemon bearer secret required by the loopback API (0600). */
+export function daemonSecretPath(): string {
+  return path.join(stateDir(), "daemon.secret");
+}
+
+/** Timestamp of the last failed autostart — hooks skip re-spawning while fresh. */
+export function startFailedMarkerPath(): string {
+  return path.join(stateDir(), "daemon.start-failed");
+}

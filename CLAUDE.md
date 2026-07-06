@@ -87,9 +87,11 @@ Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worke
 
 ## KV Schema (binding: STORE)
 
-- `pair:{code}` → `{deviceId, pollSecretHash, status, slackRef?}` (TTL 15 min)
-- `device:{sha256(token)}` → `{slackUserId, teamId, teamName, encToken, createdAt, lastSeenAt}`
-- `rl:{scope}:{key}:{minuteBucket}` → counter (TTL 2 min)
+- `pair:{code}` → `{deviceId, pollSecretHash, status, deviceToken?, team?}` (TTL 15 min; `deviceToken` plaintext, only during OAuth→CLI handover — single-use with a 60s delivered-grace)
+- `pairdev:{deviceId}` → code (TTL 900s) — pairing-code lookup for polling
+- `pairstate:{nonce}` → code (TTL 600s) — OAuth CSRF state
+- `device:{sha256(token)}` → `{slackUserId, teamId, teamName, encToken, createdAt, lastSeenAt, provisional?}` (provisional until first authenticated use, 24h TTL if never used)
+- `rl:{scope}:{key}:{minute}` → counter (TTL 2 min)
 
 ## Key Decisions
 
@@ -105,6 +107,8 @@ Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worke
 | 2026-07-06 | RR7 SSR framework mode | Current house standard (extractvibe, stackhooks, ogrender) |
 | 2026-07-06 | Static OG image v1 (no satori) | One marketing page; not worth the wasm weight yet |
 | 2026-07-06 | Daemon port 4519 | Unassigned range, no common collisions |
+| 2026-07-06 | Daemon loopback API requires an auto-generated bearer secret (`~/.local/state/agentblip/daemon.secret`, 0600) on `/event` `/state` `/pause` `/resume`; `/health` open | localhost isn't a trust boundary — blocks other local users and browser-based (DNS-rebinding) event injection |
+| 2026-07-06 | Pairing handover: plaintext device token only in the pair record (≤15 min, single-use + 60s delivered-grace); device records provisional (24h TTL) until first authenticated use | Keeps privacy claims strictly true; abandoned pairings self-clean |
 
 ## Cloudflare Resources
 

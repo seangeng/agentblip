@@ -9,13 +9,22 @@ build. If your tool can make an HTTP request, it can be a blip.
 Loopback only, default `http://127.0.0.1:4519` (`port` in
 `~/.config/agentblip/config.json`).
 
+Every endpoint except `GET /health` requires the daemon's local API secret as a
+bearer token. The daemon generates the secret automatically and stores it with
+`0600` permissions at `~/.local/state/agentblip/daemon.secret` (`XDG_STATE_HOME`
+respected). Grab it in one line:
+
+```bash
+AUTH="authorization: Bearer $(cat ~/.local/state/agentblip/daemon.secret)"
+```
+
 | Method & path | Body | Purpose |
 |---|---|---|
-| `POST /event` | session event (below) | Report a session event. `200` on accept, `400` on schema failure |
+| `POST /event` | session event (below) | Report a session event. `200` on accept, `400` on schema failure, `401` without the bearer secret |
 | `GET /state` | — | Current sessions and the formatted status, as JSON |
 | `POST /pause` | — | Pause Slack updates (daemon keeps tracking) |
 | `POST /resume` | — | Resume Slack updates |
-| `GET /health` | — | Liveness probe |
+| `GET /health` | — | Liveness probe (no auth) |
 
 ## The event schema
 
@@ -78,6 +87,7 @@ Start working:
 
 ```bash
 curl -s -X POST http://127.0.0.1:4519/event \
+  -H "authorization: Bearer $(cat ~/.local/state/agentblip/daemon.secret)" \
   -H "content-type: application/json" \
   -d '{"source":"my-agent","sessionId":"run-42","kind":"working","activity":"training model","project":"acme-api"}'
 ```
@@ -86,6 +96,7 @@ Finish:
 
 ```bash
 curl -s -X POST http://127.0.0.1:4519/event \
+  -H "authorization: Bearer $(cat ~/.local/state/agentblip/daemon.secret)" \
   -H "content-type: application/json" \
   -d '{"source":"my-agent","sessionId":"run-42","kind":"end"}'
 ```
@@ -97,11 +108,13 @@ blip() {
   local label="$1"; shift
   local sid="shell-$$-$RANDOM"
   local url="http://127.0.0.1:4519/event"
-  curl -s -o /dev/null -X POST "$url" -H "content-type: application/json" \
+  local state="${XDG_STATE_HOME:-$HOME/.local/state}/agentblip"
+  local auth="authorization: Bearer $(cat "$state/daemon.secret")"
+  curl -s -o /dev/null -X POST "$url" -H "$auth" -H "content-type: application/json" \
     -d "{\"source\":\"shell\",\"sessionId\":\"$sid\",\"kind\":\"working\",\"activity\":\"$label\",\"project\":\"$(basename "$PWD")\"}"
   "$@"
   local code=$?
-  curl -s -o /dev/null -X POST "$url" -H "content-type: application/json" \
+  curl -s -o /dev/null -X POST "$url" -H "$auth" -H "content-type: application/json" \
     -d "{\"source\":\"shell\",\"sessionId\":\"$sid\",\"kind\":\"end\"}"
   return $code
 }

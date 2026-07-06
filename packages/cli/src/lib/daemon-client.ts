@@ -4,23 +4,28 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent, SlackStatus, StatusSnapshot } from "@agentblip/core";
 import type { Config } from "./config";
-import { logFilePath, spawnLockPath, stateDir } from "./paths";
+import { readDaemonSecret } from "./daemon-auth";
+import { logFilePath, spawnLockPath, startFailedMarkerPath, stateDir } from "./paths";
 import { sleep } from "./ui";
 
 export const REQUEST_TIMEOUT_MS = 1500;
 const SPAWN_LOCK_STALE_MS = 15_000;
 const START_WAIT_MS = 5000;
+/** After a failed autostart, don't re-spawn (5s of dead hook time) for this long. */
+export const START_FAILURE_COOLDOWN_MS = 60_000;
 
 export interface DaemonState {
   snapshot: StatusSnapshot;
   formatted: SlackStatus | null;
   paused: boolean;
+  lastError?: string;
 }
 
 export interface DaemonHealth {
   ok: boolean;
   pid: number;
   uptimeSec: number;
+  lastError?: string;
 }
 
 async function daemonFetch<T>(
@@ -29,10 +34,14 @@ async function daemonFetch<T>(
   method: "GET" | "POST" = "GET",
   body?: unknown,
 ): Promise<T> {
+  // Re-read per request: a restarted daemon rotates its secret.
+  const secret = readDaemonSecret();
   const res = await fetch(`http://127.0.0.1:${port}${pathname}`, {
     method,
-    headers:
-      body === undefined ? undefined : { "content-type": "application/json" },
+    headers: {
+      ...(secret === undefined ? {} : { authorization: `Bearer ${secret}` }),
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
@@ -119,12 +128,54 @@ async function waitForHealth(port: number, timeoutMs: number): Promise<boolean> 
   return false;
 }
 
+function recordStartFailure(): void {
+  try {
+    fs.mkdirSync(stateDir(), { recursive: true });
+    fs.writeFileSync(startFailedMarkerPath(), `${Date.now()}\n`);
+  } catch {
+    // best effort — worst case hooks keep retrying
+  }
+}
+
+function clearStartFailure(): void {
+  try {
+    fs.unlinkSync(startFailedMarkerPath());
+  } catch {
+    // already gone
+  }
+}
+
+/** True while a recent failed autostart means re-spawning would just burn 5s. */
+export function inStartFailureCooldown(now = Date.now()): boolean {
+  try {
+    const ts = Number.parseInt(
+      fs.readFileSync(startFailedMarkerPath(), "utf8").trim(),
+      10,
+    );
+    return Number.isFinite(ts) && now - ts < START_FAILURE_COOLDOWN_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cheap pre-flight: a daemon whose sink can't be created dies instantly in
+ * createSink — don't spawn one just to watch it crash for 5 seconds.
+ */
+export function sinkConfigured(config: Config): boolean {
+  if (config.mode === "relay") return Boolean(config.deviceToken);
+  if (config.mode === "slack") return Boolean(config.slackToken);
+  return true;
+}
+
 /**
  * Spawns `agentblip start` detached, logging to the state dir. A lockfile
- * guards against concurrent hooks racing to start multiple daemons.
+ * guards against concurrent hooks racing to start multiple daemons. Failed
+ * starts leave a cooldown marker so hooks stop re-spawning a crashing daemon.
  */
 export async function spawnDetachedDaemon(config: Config): Promise<boolean> {
   if (!acquireSpawnLock()) return waitForHealth(config.port, START_WAIT_MS);
+  let up = false;
   try {
     fs.mkdirSync(stateDir(), { recursive: true });
     const out = fs.openSync(logFilePath(), "a");
@@ -136,8 +187,11 @@ export async function spawnDetachedDaemon(config: Config): Promise<boolean> {
     child.on("error", () => {});
     child.unref();
     fs.closeSync(out);
-    return await waitForHealth(config.port, START_WAIT_MS);
+    up = await waitForHealth(config.port, START_WAIT_MS);
+    return up;
   } finally {
+    if (up) clearStartFailure();
+    else recordStartFailure();
     releaseSpawnLock();
   }
 }
@@ -146,5 +200,7 @@ export async function spawnDetachedDaemon(config: Config): Promise<boolean> {
 export async function ensureDaemon(config: Config): Promise<boolean> {
   if (await isDaemonUp(config.port)) return true;
   if (!config.autoStartDaemon) return false;
+  if (!sinkConfigured(config)) return false;
+  if (inStartFailureCooldown()) return false;
   return spawnDetachedDaemon(config);
 }

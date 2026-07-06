@@ -1,16 +1,21 @@
 import http from "node:http";
 import { sessionEventSchema } from "@agentblip/core";
 import type { SessionEvent, SlackStatus, StatusSnapshot } from "@agentblip/core";
+import { secretsEqual } from "../lib/daemon-auth";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
 export interface DaemonServerDeps {
+  /** Per-daemon bearer secret required on every endpoint except /health. */
+  secret: string;
   applyEvent(event: SessionEvent): void;
   getState(): {
     snapshot: StatusSnapshot;
     formatted: SlackStatus | null;
     paused: boolean;
+    lastError?: string;
   };
+  getLastError(): string | undefined;
   pause(): Promise<void>;
   resume(): void;
 }
@@ -38,6 +43,12 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
+function isAuthorized(req: http.IncomingMessage, secret: string): boolean {
+  const header = req.headers.authorization;
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
+  return secretsEqual(header.slice("Bearer ".length), secret);
+}
+
 /** Loopback HTTP API — the single integration surface for all adapters. */
 export function createDaemonServer(deps: DaemonServerDeps): http.Server {
   const startedAt = Date.now();
@@ -49,6 +60,21 @@ export function createDaemonServer(deps: DaemonServerDeps): http.Server {
     const method = req.method ?? "GET";
     const url = req.url ?? "/";
     try {
+      if (method === "GET" && url === "/health") {
+        json(res, 200, {
+          ok: true,
+          pid: process.pid,
+          uptimeSec: Math.round((Date.now() - startedAt) / 1000),
+          lastError: deps.getLastError(),
+        });
+        return;
+      }
+      // Loopback TCP is reachable by every local user on shared hosts — all
+      // session data and control endpoints require the per-daemon secret.
+      if (!isAuthorized(req, deps.secret)) {
+        json(res, 401, { ok: false, error: "unauthorized" });
+        return;
+      }
       if (method === "POST" && url === "/event") {
         const body = await readBody(req);
         let raw: unknown;
@@ -75,21 +101,16 @@ export function createDaemonServer(deps: DaemonServerDeps): http.Server {
         return;
       }
       if (method === "POST" && url === "/pause") {
-        await deps.pause();
+        // Respond immediately: pause() flips the flag synchronously but then
+        // awaits a status-clear push (up to 10s) — far past the CLI's 1.5s
+        // request timeout. The clearing push runs in the background.
+        void deps.pause().catch(() => {});
         json(res, 200, { ok: true, paused: true });
         return;
       }
       if (method === "POST" && url === "/resume") {
         deps.resume();
         json(res, 200, { ok: true, paused: false });
-        return;
-      }
-      if (method === "GET" && url === "/health") {
-        json(res, 200, {
-          ok: true,
-          pid: process.pid,
-          uptimeSec: Math.round((Date.now() - startedAt) / 1000),
-        });
         return;
       }
       json(res, 404, { ok: false, error: "not found" });
