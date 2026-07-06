@@ -1,4 +1,8 @@
-import type { SlackStatus } from "@agentblip/core";
+import {
+  SLACK_PROFILE_SET_URL,
+  toSlackProfile,
+  type SlackStatus,
+} from "@agentblip/core";
 
 /** Slack Web API calls get a hard 5s budget so a slow Slack can't hang the Worker. */
 const SLACK_TIMEOUT_MS = 5_000;
@@ -68,16 +72,10 @@ export async function setStatus(
   xoxpToken: string,
   status: SlackStatus | null,
 ): Promise<SetStatusResult> {
-  const profile = status
-    ? {
-        status_text: status.text,
-        status_emoji: status.emoji,
-        status_expiration: status.expirationSec,
-      }
-    : { status_text: "", status_emoji: "", status_expiration: 0 };
+  const profile = toSlackProfile(status);
 
   try {
-    const res = await fetch("https://slack.com/api/users.profile.set", {
+    const res = await fetch(SLACK_PROFILE_SET_URL, {
       method: "POST",
       headers: {
         authorization: `Bearer ${xoxpToken}`,

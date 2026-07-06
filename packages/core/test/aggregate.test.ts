@@ -51,10 +51,41 @@ describe("SessionStore", () => {
   });
 
   it("drops out-of-order events", () => {
+    const T = 1_700_000_000_000;
     const store = new SessionStore();
-    store.apply(ev({ kind: "idle" }), 5000);
-    store.apply(ev({ kind: "working", ts: 1000 }));
+    store.apply(ev({ kind: "idle" }), T + 5000);
+    store.apply(ev({ kind: "working", ts: T + 1000 }), T + 6000);
     expect(store.snapshot().working).toBe(0);
+  });
+
+  it("clamps implausible client timestamps to receipt time", () => {
+    const store = new SessionStore({ workingStaleMs: 1000 });
+    const now = 1_700_000_000_000;
+    // Far-future ts must not wedge the session past every sweep threshold…
+    store.apply(ev({ ts: now + 86_400_000 }), now);
+    store.sweep(now + 2000);
+    expect(store.snapshot().working).toBe(0);
+    // …and pre-2001 ts (broken clock) must not be dropped as out-of-order.
+    const store2 = new SessionStore();
+    store2.apply(ev({ kind: "idle" }), now);
+    store2.apply(ev({ kind: "working", ts: 999 }), now + 1000);
+    expect(store2.snapshot().working).toBe(1);
+  });
+
+  it("gives waiting sessions a longer staleness leash than working ones", () => {
+    const store = new SessionStore({
+      workingStaleMs: 1000,
+      waitingStaleMs: 10_000,
+    });
+    store.apply(ev({ kind: "waiting" }), 1000);
+    store.apply(ev({ sessionId: "s2", kind: "working" }), 1000);
+
+    store.sweep(3000); // working stale, waiting not
+    expect(store.snapshot().working).toBe(0);
+    expect(store.snapshot().waiting).toBe(1);
+
+    store.sweep(12_500); // now the waiting session is stale too
+    expect(store.snapshot().waiting).toBe(0);
   });
 
   it("sweep demotes stale working sessions then evicts idle ones", () => {

@@ -13,6 +13,12 @@ export const DEFAULT_DEBOUNCE_MS = 10_000;
 /** A "working" session with no events for this long is demoted to idle. */
 export const DEFAULT_WORKING_STALE_MS = 3 * 60_000;
 
+/**
+ * A "waiting" session is expected to be silent (agent blocked on the human),
+ * so it gets a much longer leash before demotion.
+ */
+export const DEFAULT_WAITING_STALE_MS = 30 * 60_000;
+
 /** Idle sessions are evicted after this long without events. */
 export const DEFAULT_IDLE_EVICT_MS = 15 * 60_000;
 
