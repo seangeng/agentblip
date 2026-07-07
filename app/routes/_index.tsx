@@ -10,6 +10,8 @@ const TITLE = "agentblip — your Slack status, synced with your AI agents";
 const DESCRIPTION =
   "agentblip watches your local Claude Code and Codex sessions and keeps your Slack status honest — “claude agent working”, “3 agents working”. Local-first, MIT.";
 const URL = "https://agentblip.com/";
+const MENUBAR_ZIP =
+  "https://github.com/seangeng/agentblip/releases/latest/download/agentblip-menubar-macos.zip";
 
 export function meta(_: Route.MetaArgs) {
   return [
@@ -302,6 +304,88 @@ export default function Index(_: Route.ComponentProps) {
                 <span className="text-signal-400">“· 1 waiting on me”</span>
               </span>
             </p>
+          </div>
+        </section>
+
+        {/* ── menu bar app ─────────────────────────────────── */}
+        <section id="menu-bar" className="border-t border-ink-800">
+          <div className="mx-auto w-full max-w-6xl px-6 py-20">
+            <h2 className="font-mono text-2xl font-semibold tracking-tight sm:text-3xl">
+              <span aria-hidden="true" className="text-phosphor-600">
+                ##{" "}
+              </span>
+              Also lives in your menu bar
+            </h2>
+            <p className="mt-3 max-w-2xl text-fg-muted">
+              A tiny native macOS app puts the blip on your own screen — green
+              with a count while agents work, amber when one needs you. Click it
+              for the live session list plus controls to pause, change the
+              detail level, and flip the overwrite policy. It's a thin client of
+              the same daemon, so there's nothing new to set up.
+            </p>
+
+            <div className="mt-10 grid gap-6 lg:grid-cols-2 lg:items-start">
+              {/* download */}
+              <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-6">
+                <h3 className="font-mono text-lg font-medium text-fg">
+                  Download
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-fg-muted">
+                  Grab the app, unzip, and open it. macOS 13 or later.
+                </p>
+                <a
+                  href={MENUBAR_ZIP}
+                  className="mt-5 inline-flex items-center gap-2 rounded-lg border border-phosphor-600 bg-phosphor-500/10 px-4 py-2.5 font-mono text-sm text-phosphor-300 transition-colors hover:bg-phosphor-500/20"
+                >
+                  <Blip />
+                  Download for macOS (.zip)
+                </a>
+                <p className="mt-4 text-xs leading-relaxed text-fg-faint">
+                  It's an unsigned build, so the first time you'll clear
+                  Gatekeeper's quarantine:
+                </p>
+                <div className="mt-3">
+                  <CodeBlock
+                    title="first launch"
+                    commands={[
+                      { cmd: "xattr -dr com.apple.quarantine agentblip.app" },
+                      { cmd: "open agentblip.app" },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              {/* build from source */}
+              <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-6">
+                <h3 className="font-mono text-lg font-medium text-fg">
+                  Or build it yourself
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-fg-muted">
+                  It's a small SwiftUI package in the repo. Two commands and you
+                  have your own <code className="text-fg">agentblip.app</code>.
+                </p>
+                <div className="mt-5">
+                  <CodeBlock
+                    title="apps/menubar"
+                    commands={[
+                      { cmd: "cd apps/menubar" },
+                      { cmd: "./scripts/make-app.sh", note: "# → dist/agentblip.app" },
+                    ]}
+                  />
+                </div>
+                <p className="mt-4 font-mono text-xs text-fg-faint">
+                  needs the{" "}
+                  <span className="text-fg-muted">agentblip</span> CLI running ·{" "}
+                  <a
+                    href={`${GITHUB_URL}/tree/main/apps/menubar`}
+                    rel="noreferrer"
+                    className="text-fg-muted underline-offset-4 transition-colors hover:text-fg hover:underline"
+                  >
+                    source + docs ↗
+                  </a>
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 

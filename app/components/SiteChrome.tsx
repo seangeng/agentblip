@@ -24,6 +24,12 @@ export function SiteHeader() {
         >
           how it works
         </a>
+        <a
+          href="/#menu-bar"
+          className="hidden transition-colors hover:text-fg sm:inline"
+        >
+          menu bar
+        </a>
         <Link to="/privacy" className="transition-colors hover:text-fg">
           privacy
         </Link>
