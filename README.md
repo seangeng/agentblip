@@ -90,6 +90,11 @@ plain JSON:
   // Project is usually the basename of the session's cwd.
   "showProject": false,
 
+  // In "activity" mode, lead with the repo name instead of the agent:
+  // "b3iq: editing README.md" rather than "claude: editing README.md".
+  // Falls back to the agent prefix when the session has no known repo.
+  "repoPrefix": true,
+
   // What to do when a status agentblip didn't set is already up:
   // "respect" (default) — never overwrite it; stand down until it clears.
   // "overwrite" — displace it once, remember it, restore it when sessions end.
@@ -130,6 +135,8 @@ plain JSON:
     "waitingSuffix": " · {waiting} waiting on me",     // {waiting} — appended while agents wait
     "activityOne": "{agent}: {activity}",              // {agent} {activity} {project}
     "activityMany": "{working} agents · {activity}",   // {working} {activity}
+    "repoActivityOne": "{project}: {activity}",        // repoPrefix on: {project} {activity} {agent}
+    "repoActivityMany": "{working} agents · {project}: {activity}", // repoPrefix on, multiple
     "waitingOnly": "{waiting} agent(s) waiting on me"  // {waiting} — nothing working, agents blocked
   },
 

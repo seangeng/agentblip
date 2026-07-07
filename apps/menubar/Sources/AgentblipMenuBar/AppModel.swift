@@ -53,6 +53,7 @@ final class AppModel: ObservableObject {
     func setGranularity(_ value: String) { patch(["granularity": value]) }
     func setPolicy(_ value: String) { patch(["statusPolicy": value]) }
     func setShowProject(_ value: Bool) { patch(["showProject": value]) }
+    func setRepoPrefix(_ value: Bool) { patch(["repoPrefix": value]) }
 
     private func patch(_ p: [String: Any]) {
         Task {

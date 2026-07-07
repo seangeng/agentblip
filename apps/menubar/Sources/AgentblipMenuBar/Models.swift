@@ -52,6 +52,7 @@ struct DaemonConfig: Decodable {
     let granularity: String
     let statusPolicy: String
     let showProject: Bool
+    let repoPrefix: Bool
     let statusTtlSec: Int
     let debounceMs: Int
 }

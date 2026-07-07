@@ -29,6 +29,10 @@ export interface Templates {
   activityOne: string;
   /** Multiple working sessions, activity granularity. {working} {activity} */
   activityMany: string;
+  /** One working session, activity granularity, repoPrefix on. {project} {activity} {agent} */
+  repoActivityOne: string;
+  /** Multiple working sessions, activity granularity, repoPrefix on. {working} {project} {activity} */
+  repoActivityMany: string;
   /** Only waiting sessions remain (nothing working). Placeholder: {waiting} */
   waitingOnly: string;
 }
@@ -40,6 +44,8 @@ export const DEFAULT_TEMPLATES: Templates = {
   waitingSuffix: " · {waiting} waiting on me",
   activityOne: "{agent}: {activity}",
   activityMany: "{working} agents · {activity}",
+  repoActivityOne: "{project}: {activity}",
+  repoActivityMany: "{working} agents · {project}: {activity}",
   waitingOnly: "{waiting} agent(s) waiting on me",
 };
 
@@ -49,6 +55,11 @@ export interface FormatOptions {
   emoji?: { working?: string; waiting?: string };
   /** Append " ({project})" when a project name is known. */
   showProject?: boolean;
+  /**
+   * In activity granularity, lead with the repo/project name instead of the
+   * agent: "b3iq: editing README.md". No-op when the session has no project.
+   */
+  repoPrefix?: boolean;
   /** Rolling expiration window in seconds (0 disables expiration). */
   statusTtlSec?: number;
   /** Redaction patterns applied to activity/project text. */
@@ -91,16 +102,26 @@ export function formatStatus(
   const activity = redact(snap.latestActivity ?? "");
   const project = active?.project ? redact(active.project) : "";
 
+  // Lead with the repo name in activity mode when we know it and it's enabled.
+  const repoLed = Boolean(opts.repoPrefix && project && granularity === "activity" && activity);
+
   let text: string;
   if (snap.working === 0) {
     text = fill(templates.waitingOnly, { waiting: snap.waiting });
   } else if (granularity === "presence") {
     text = templates.presence;
   } else if (granularity === "activity" && activity) {
-    text =
-      snap.working === 1
-        ? fill(templates.activityOne, { agent, activity, project })
-        : fill(templates.activityMany, { working: snap.working, activity });
+    if (repoLed) {
+      text =
+        snap.working === 1
+          ? fill(templates.repoActivityOne, { project, activity, agent })
+          : fill(templates.repoActivityMany, { working: snap.working, project, activity });
+    } else {
+      text =
+        snap.working === 1
+          ? fill(templates.activityOne, { agent, activity, project })
+          : fill(templates.activityMany, { working: snap.working, activity });
+    }
   } else {
     text =
       snap.working === 1
@@ -114,7 +135,8 @@ export function formatStatus(
   if (snap.working > 0 && snap.waiting > 0 && granularity !== "presence") {
     text += fill(templates.waitingSuffix, { waiting: snap.waiting });
   }
-  if (opts.showProject && project && granularity !== "presence") {
+  // Skip the "(project)" suffix when the repo is already the prefix.
+  if (opts.showProject && project && granularity !== "presence" && !repoLed) {
     text += ` (${project})`;
   }
 

@@ -123,6 +123,15 @@ struct MenuContent: View {
                     Text("Overwrite").tag("overwrite")
                 }
                 .font(.system(size: 12))
+
+                Toggle(isOn: Binding(
+                    get: { c.repoPrefix },
+                    set: { model.setRepoPrefix($0) }
+                )) {
+                    Text("Lead with repo name").font(.system(size: 12))
+                }
+                .toggleStyle(.switch)
+                .help("Show “repo: activity” (e.g. b3iq: editing README.md) in activity mode")
             }
         }
     }

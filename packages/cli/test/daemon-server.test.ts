@@ -31,6 +31,7 @@ const BASE_CONFIG: SafeConfig = {
   granularity: "count",
   statusPolicy: "respect",
   showProject: false,
+  repoPrefix: true,
   statusTtlSec: 300,
   debounceMs: 10000,
 };

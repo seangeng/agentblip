@@ -94,6 +94,49 @@ describe("formatStatus", () => {
     expect(s?.emoji).toBe(":hammer:");
   });
 
+  it("repoPrefix leads with the repo name in activity mode", () => {
+    const one = formatStatus(
+      snapFrom([{ activity: "editing README.md", project: "b3iq" }]),
+      { granularity: "activity", repoPrefix: true },
+      NOW,
+    );
+    expect(one?.text).toBe("b3iq: editing README.md");
+
+    const many = formatStatus(
+      snapFrom([{}, { activity: "running tests", project: "b3iq", ts: NOW + 99 }]),
+      { granularity: "activity", repoPrefix: true },
+      NOW,
+    );
+    expect(many?.text).toBe("2 agents · b3iq: running tests");
+  });
+
+  it("repoPrefix suppresses the duplicate (project) suffix", () => {
+    const s = formatStatus(
+      snapFrom([{ activity: "editing README.md", project: "b3iq" }]),
+      { granularity: "activity", repoPrefix: true, showProject: true },
+      NOW,
+    );
+    expect(s?.text).toBe("b3iq: editing README.md");
+  });
+
+  it("repoPrefix falls back to the agent prefix when no project is known", () => {
+    const s = formatStatus(
+      snapFrom([{ activity: "finalizing CI/CD" }]),
+      { granularity: "activity", repoPrefix: true },
+      NOW,
+    );
+    expect(s?.text).toBe("claude: finalizing CI/CD");
+  });
+
+  it("repoPrefix only affects activity granularity", () => {
+    const s = formatStatus(
+      snapFrom([{ activity: "editing README.md", project: "b3iq" }]),
+      { granularity: "count", repoPrefix: true },
+      NOW,
+    );
+    expect(s?.text).toBe("claude agent working");
+  });
+
   it("shows project when asked and redacts patterns", () => {
     const s = formatStatus(
       snapFrom([{ activity: "editing secret-payments.ts", project: "acme-internal" }]),

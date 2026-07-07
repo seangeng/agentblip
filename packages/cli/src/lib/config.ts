@@ -17,6 +17,8 @@ const templatesSchema = z
     waitingSuffix: z.string(),
     activityOne: z.string(),
     activityMany: z.string(),
+    repoActivityOne: z.string(),
+    repoActivityMany: z.string(),
     waitingOnly: z.string(),
   })
   .partial();
@@ -31,6 +33,8 @@ export const configSchema = z.object({
   /** How to treat a Slack status agentblip didn't set (ownership guard). */
   statusPolicy: z.enum(["respect", "overwrite"]).default("respect"),
   showProject: z.boolean().default(false),
+  /** Lead the activity status with the repo name ("b3iq: editing README.md"). */
+  repoPrefix: z.boolean().default(true),
   statusTtlSec: z.number().int().nonnegative().default(DEFAULT_STATUS_TTL_SEC),
   debounceMs: z.number().int().nonnegative().default(DEFAULT_DEBOUNCE_MS),
   templates: templatesSchema.optional(),
@@ -127,6 +131,7 @@ export const liveConfigPatchSchema = z
     granularity: z.enum(["off", "presence", "count", "activity"]),
     statusPolicy: z.enum(["respect", "overwrite"]),
     showProject: z.boolean(),
+    repoPrefix: z.boolean(),
   })
   .partial()
   .strict();
@@ -141,6 +146,7 @@ export interface SafeConfig {
   granularity: Config["granularity"];
   statusPolicy: Config["statusPolicy"];
   showProject: boolean;
+  repoPrefix: boolean;
   statusTtlSec: number;
   debounceMs: number;
 }
@@ -153,6 +159,7 @@ export function safeConfig(config: Config): SafeConfig {
     granularity: config.granularity,
     statusPolicy: config.statusPolicy,
     showProject: config.showProject,
+    repoPrefix: config.repoPrefix,
     statusTtlSec: config.statusTtlSec,
     debounceMs: config.debounceMs,
   };
@@ -164,6 +171,7 @@ export function formatOptionsFromConfig(config: Config): FormatOptions {
     templates: config.templates,
     emoji: config.emoji,
     showProject: config.showProject,
+    repoPrefix: config.repoPrefix,
     statusTtlSec: config.statusTtlSec,
     redactPatterns: config.redactPatterns,
   };
