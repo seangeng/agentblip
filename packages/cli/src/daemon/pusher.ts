@@ -246,12 +246,17 @@ export class Pusher {
       return undefined; // read unavailable this round — plan legacy, push blind
     }
     if (!read.readable) {
-      if (!this.legacyWarned) {
+      // "unsupported" (console dry-run) has nothing to overwrite — stay silent.
+      if (read.reason !== "unsupported" && !this.legacyWarned) {
         this.legacyWarned = true;
+        const fix =
+          this.sink.name === "slack"
+            ? "reissue your Slack token with the users.profile:read scope"
+            : "run `agentblip setup` to re-pair with the read scope";
         this.log(
           `sink "${this.sink.name}" cannot read the current status (token lacks users.profile:read) — ` +
             "legacy mode: an existing status set by you or another app may be overwritten; " +
-            "run `agentblip setup` to re-pair with the read scope",
+            fix,
         );
       }
       return undefined;

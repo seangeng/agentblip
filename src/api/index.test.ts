@@ -8,6 +8,7 @@ import type { Env } from "../env";
 import { aesGcmDecrypt, aesGcmEncrypt, sha256hex } from "../lib/crypto";
 import {
   DEVICE_PROVISIONAL_TTL_SEC,
+  PAIR_COMPLETE_TTL_SEC,
   PAIR_DELIVERED_TTL_SEC,
   getDeviceRecord,
   putDeviceRecord,
@@ -87,6 +88,13 @@ const jsonInit = (body: unknown, headers: Record<string, string> = {}): RequestI
   body: JSON.stringify(body),
 });
 
+/** The browser echoes the install response's ab_pair cookie back to the callback. */
+function cookieHeader(installRes: Response): Record<string, string> {
+  const setCookie = installRes.headers.get("set-cookie") ?? "";
+  const value = /ab_pair=([^;]+)/.exec(setCookie)?.[1];
+  return value ? { Cookie: `ab_pair=${value}` } : {};
+}
+
 async function seedDevice(
   kv: KVStore,
   xoxp = "xoxp-seeded",
@@ -147,9 +155,11 @@ describe("pair flow", () => {
     );
     expect(((await pendingRes.json()) as PairPollResponse).status).toBe("pending");
 
-    // 3. Browser hits install → 302 to Slack authorize with a state nonce
+    // 3. Browser hits install → 302 to Slack authorize with a state nonce,
+    //    setting an HttpOnly cookie that binds OAuth to this browser
     const installRes = await api.request(`/slack/install?code=${start.code}`, {}, env);
     expect(installRes.status).toBe(302);
+    expect(installRes.headers.get("set-cookie")).toMatch(/ab_pair=[0-9a-f]{32}; HttpOnly/);
     const authorizeUrl = new URL(installRes.headers.get("location") ?? "");
     expect(authorizeUrl.origin + authorizeUrl.pathname).toBe(
       "https://slack.com/oauth/v2/authorize",
@@ -173,9 +183,23 @@ describe("pair flow", () => {
             team: { id: "T777", name: "Acme Inc" },
           }
         : { ok: true };
-    const cbRes = await api.request(`/slack/callback?code=slack-code&state=${state}`, {}, env);
+    const cbRes = await api.request(
+      `/slack/callback?code=slack-code&state=${state}`,
+      { headers: cookieHeader(installRes) },
+      env,
+    );
     expect(cbRes.status).toBe(302);
     expect(cbRes.headers.get("location")).toBe("/pair?done=1&team=Acme%20Inc");
+    // Bounded plaintext-token window after OAuth completes
+    expect(ttls.get(`pair:${start.code}`)).toBe(PAIR_COMPLETE_TTL_SEC);
+
+    // A callback without the install cookie is rejected (phish/minted-URL guard)
+    const start2Res = await api.request("/pair/start", { method: "POST" }, env);
+    const start2 = pairStartResponseSchema.parse(await start2Res.json());
+    const install2 = await api.request(`/slack/install?code=${start2.code}`, {}, env);
+    const state2 = new URL(install2.headers.get("location") ?? "").searchParams.get("state");
+    const noCookie = await api.request(`/slack/callback?code=slack-code&state=${state2}`, {}, env);
+    expect(noCookie.headers.get("location")).toBe("/pair?error=state");
 
     const exchangeCall = fetchCalls.find((f) => f.url.includes("oauth.v2.access"));
     expect(exchangeCall).toBeDefined();
@@ -312,7 +336,11 @@ describe("pair flow", () => {
             team: { id: "T777", name: "Acme Inc" },
           }
         : { ok: true };
-    const cbRes = await api.request(`/slack/callback?code=slack-code&state=${state}`, {}, env);
+    const cbRes = await api.request(
+      `/slack/callback?code=slack-code&state=${state}`,
+      { headers: cookieHeader(res) },
+      env,
+    );
     expect(cbRes.headers.get("location")).toBe("/pair?done=1&team=Acme%20Inc");
 
     const pollRes = await api.request(
@@ -374,11 +402,19 @@ describe("pair flow", () => {
     const state = new URL(installRes.headers.get("location") ?? "").searchParams.get("state");
 
     slackResponder = () => ({ ok: false, error: "invalid_code" });
-    const cbRes = await api.request(`/slack/callback?code=bad&state=${state}`, {}, env);
+    const cbRes = await api.request(
+      `/slack/callback?code=bad&state=${state}`,
+      { headers: cookieHeader(installRes) },
+      env,
+    );
     expect(cbRes.headers.get("location")).toBe("/pair?error=slack");
 
     // nonce was consumed even though the exchange failed
-    const replay = await api.request(`/slack/callback?code=bad&state=${state}`, {}, env);
+    const replay = await api.request(
+      `/slack/callback?code=bad&state=${state}`,
+      { headers: cookieHeader(installRes) },
+      env,
+    );
     expect(replay.headers.get("location")).toBe("/pair?error=state");
   });
 });
@@ -788,6 +824,26 @@ describe("POST /unlink", () => {
     expect(JSON.parse(String(call?.init.body))).toEqual({
       profile: { status_text: "", status_emoji: "", status_expiration: 0 },
     });
+  });
+
+  it("leaves the status untouched when the client sends clear:false", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const { token, tokenHash } = await seedDevice(kv);
+
+    const res = await api.request(
+      "/unlink",
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ clear: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await getDeviceRecord(kv, tokenHash)).toBeNull();
+    // no users.profile.set call — the foreign/restored status is left as-is
+    expect(fetchCalls.find((f) => f.url.includes("users.profile.set"))).toBeUndefined();
   });
 
   it("still unlinks when the Slack clear fails", async () => {

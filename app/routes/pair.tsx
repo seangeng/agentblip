@@ -188,9 +188,12 @@ export default function Pair({ loaderData }: Route.ComponentProps) {
             </form>
 
             <p className="mt-6 text-sm text-fg-faint">
-              You'll be sent to Slack to authorize the{" "}
-              <code className="font-mono text-xs">users.profile:write</code>{" "}
-              scope — the only permission agentblip asks for.
+              You'll be sent to Slack to authorize{" "}
+              <code className="font-mono text-xs">users.profile:write</code> (set
+              your status) and{" "}
+              <code className="font-mono text-xs">users.profile:read</code> (check
+              the current status so agentblip never overwrites one it didn't set)
+              — the only permissions agentblip asks for.
             </p>
           </section>
         )}

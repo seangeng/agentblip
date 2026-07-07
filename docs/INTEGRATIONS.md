@@ -60,22 +60,18 @@ agentblip from overwriting a Slack status it didn't set:
   },
   "paused": false,
   "ownership": {
-    "lastPushed": {
-      "text": "claude agent working",
-      "emoji": ":robot_face:",
-      "expirationSec": 1751830342
-    },
-    "savedPrior": null,
-    "backedOff": false
+    "backedOff": false,
+    "savedPrior": false,
+    "policy": "respect"
   }
 }
 ```
 
 | `ownership` field | Meaning |
 |---|---|
-| `lastPushed` | The status the daemon believes it last set; `null` = it set nothing (or cleared) |
-| `savedPrior` | A foreign status displaced under `statusPolicy: "overwrite"` — restored when sessions end |
 | `backedOff` | `true` while the daemon is standing down because a status it didn't set is up; it resumes when that status clears |
+| `savedPrior` | `true` when a foreign status was displaced under `statusPolicy: "overwrite"` and will be restored when sessions end (boolean, not the status itself — the relay never exposes another app's status text) |
+| `policy` | The active `statusPolicy`: `"respect"` or `"overwrite"` |
 
 ## The event schema
 

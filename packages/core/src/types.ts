@@ -21,8 +21,9 @@ export interface StatusSnapshot {
   /** Activity label of the most recently updated working session, if any. */
   latestActivity?: string;
   /**
-   * Stable fingerprint of everything that affects the formatted status.
-   * The daemon pushes to Slack only when this changes.
+   * Informational fingerprint of session state, surfaced on the daemon's
+   * /state endpoint. The pusher dedups on the formatted status text/emoji, not
+   * on this — two different session sets can format to the same Slack status.
    */
   signature: string;
 }

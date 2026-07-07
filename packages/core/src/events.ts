@@ -51,6 +51,12 @@ export type StatusUpdateRequest = z.infer<typeof statusUpdateRequestSchema>;
 export const statusReadResponseSchema = z.object({
   readable: z.boolean(),
   status: slackStatusSchema.nullable(),
+  /**
+   * Why a read was not usable. "missing_scope": token lacks users.profile:read
+   * (re-pair to fix). "unsupported": sink has no real profile to read (console
+   * dry-run) — nothing is at risk, so callers must not warn about overwrites.
+   */
+  reason: z.enum(["missing_scope", "unsupported"]).optional(),
 });
 export type StatusReadResponse = z.infer<typeof statusReadResponseSchema>;
 

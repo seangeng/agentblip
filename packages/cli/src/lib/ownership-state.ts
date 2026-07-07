@@ -30,6 +30,10 @@ export function saveOwnershipState(
   state: OwnershipState,
   file = ownershipStatePath(),
 ): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
+  // Same 0600/0700 discipline as the config and daemon-secret files: a saved
+  // prior status can be a private "On vacation"-type message and shouldn't be
+  // world-readable in a shared-machine state dir.
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
 }

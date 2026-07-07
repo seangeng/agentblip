@@ -152,7 +152,12 @@ export async function runSetup(opts: SetupOptions = {}): Promise<void> {
     }
     config.deviceToken = await pairDevice(config.relayUrl);
   } else if (config.mode === "slack") {
-    console.log(dim("\n  needs a user token with the users.profile:write scope"));
+    console.log(
+      dim(
+        "\n  needs a user token with users.profile:write scopes" +
+          " (add users.profile:read so agentblip never overwrites a status it didn't set)",
+      ),
+    );
     const keepHint = config.slackToken ? " (enter keeps the saved token)" : "";
     const token = await askSecret(`Paste your Slack user token (xoxp-…)${keepHint}:`);
     if (token) config.slackToken = token;

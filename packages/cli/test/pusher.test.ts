@@ -33,7 +33,12 @@ interface Harness {
   pusher: Pusher;
   pushes: (SlackStatus | null)[];
   /** Simulated Slack profile: successful pushes land here; reads serve it. */
-  remote: { status: SlackStatus | null; readable: boolean; readFail: boolean };
+  remote: {
+    status: SlackStatus | null;
+    readable: boolean;
+    readFail: boolean;
+    reason: "missing_scope" | "unsupported" | undefined;
+  };
   fail: { next: boolean; always: boolean; permanent: boolean; hang: boolean };
   logs: string[];
   attempts: () => number;
@@ -54,6 +59,7 @@ function build(
     status: null as SlackStatus | null,
     readable: true,
     readFail: false,
+    reason: undefined as "missing_scope" | "unsupported" | undefined,
   };
   const fail = { next: false, always: false, permanent: false, hang: false };
   const logs: string[] = [];
@@ -75,10 +81,18 @@ function build(
       pushes.push(status);
       return Promise.resolve();
     },
-    getStatus(): Promise<{ readable: boolean; status: SlackStatus | null }> {
+    getStatus(): Promise<{
+      readable: boolean;
+      status: SlackStatus | null;
+      reason?: "missing_scope" | "unsupported";
+    }> {
       readCount += 1;
       if (remote.readFail) return Promise.reject(new Error("read boom"));
-      return Promise.resolve({ readable: remote.readable, status: remote.status });
+      return Promise.resolve({
+        readable: remote.readable,
+        status: remote.status,
+        reason: remote.reason,
+      });
     },
   };
   const store = new SessionStore();
@@ -501,6 +515,18 @@ describe("Pusher ownership guard", () => {
     await h.pusher.flush();
     expect(h.pushes).toHaveLength(2);
     expect(h.logs.filter((l) => l.includes("legacy mode"))).toHaveLength(1);
+  });
+
+  it('reason "unsupported" (console dry-run) pushes legacy-style with NO warning', async () => {
+    const h = build();
+    h.remote.readable = false;
+    h.remote.reason = "unsupported";
+    h.pusher.start();
+    h.store.apply(working("a", "editing a.ts"));
+    h.pusher.notify();
+    await h.pusher.flush();
+    expect(h.pushes).toHaveLength(1);
+    expect(h.logs.filter((l) => l.includes("legacy mode"))).toHaveLength(0);
   });
 
   it("treats a failed status read as unreadable and pushes legacy-style", async () => {

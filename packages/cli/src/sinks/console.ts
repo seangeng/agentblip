@@ -18,10 +18,10 @@ export function createConsoleSink(log: (message: string) => void = console.log):
     },
     getStatus(): Promise<StatusReadResponse> {
       // Dry run: there is no real Slack profile behind this sink, so there is
-      // nothing to read. readable:false routes the pusher down the legacy
-      // blind-push path (which here only logs) — the ownership guard is
-      // deliberately inert in dry-run rather than acting on made-up data.
-      return Promise.resolve({ readable: false, status: null });
+      // nothing to read. reason "unsupported" (not "missing_scope") tells the
+      // pusher to stay quiet — nothing can be overwritten, so warning about a
+      // missing read scope would be false and confusing.
+      return Promise.resolve({ readable: false, status: null, reason: "unsupported" });
     },
   };
 }

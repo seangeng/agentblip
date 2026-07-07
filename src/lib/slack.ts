@@ -1,9 +1,9 @@
 import {
   SLACK_PROFILE_GET_URL,
   SLACK_PROFILE_SET_URL,
-  fromSlackProfile,
+  interpretProfileGet,
   toSlackProfile,
-  type SlackProfileFields,
+  type SlackProfileGetBody,
   type SlackStatus,
 } from "@agentblip/core";
 
@@ -80,32 +80,24 @@ export async function oauthExchange(params: {
   };
 }
 
-interface SlackProfileGetResponse {
-  ok: boolean;
-  error?: string;
-  profile?: SlackProfileFields;
-}
-
 /** GET users.profile.get — reads the current status so we never clobber a foreign one. */
 export async function getStatus(xoxpToken: string): Promise<GetStatusResult> {
-  let data: SlackProfileGetResponse;
+  let data: SlackProfileGetBody;
   try {
     const res = await fetch(SLACK_PROFILE_GET_URL, {
       method: "GET",
       headers: { authorization: `Bearer ${xoxpToken}` },
       signal: AbortSignal.timeout(SLACK_TIMEOUT_MS),
     });
-    data = (await res.json()) as SlackProfileGetResponse;
+    data = (await res.json()) as SlackProfileGetBody;
   } catch {
     return { ok: false, error: "network_error" };
   }
 
-  if (!data.ok) {
-    if (data.error === "missing_scope") return { ok: true, readable: false };
-    return { ok: false, error: data.error ?? "unknown_error" };
-  }
-
-  return { ok: true, readable: true, status: fromSlackProfile(data.profile) };
+  const outcome = interpretProfileGet(data);
+  if ("error" in outcome) return { ok: false, error: outcome.error };
+  if (!outcome.readable) return { ok: true, readable: false };
+  return { ok: true, readable: true, status: outcome.status };
 }
 
 /** POST users.profile.set — `status: null` clears the Slack status entirely. */

@@ -115,6 +115,10 @@ plain JSON:
   // literally. Matches become "…".
   "redactPatterns": ["secret-project", "client-\\w+"],
 
+  // Project names to suppress entirely — sessions in these projects still count
+  // toward "N agents working" but never contribute activity/project text.
+  "hideProjects": ["acme-confidential"],
+
   // Status emoji, Slack ":name:" form.
   "emoji": { "working": ":robot_face:", "waiting": ":raised_hand:" },
 
@@ -127,9 +131,23 @@ plain JSON:
     "activityOne": "{agent}: {activity}",              // {agent} {activity} {project}
     "activityMany": "{working} agents · {activity}",   // {working} {activity}
     "waitingOnly": "{waiting} agent(s) waiting on me"  // {waiting} — nothing working, agents blocked
+  },
+
+  // Auto-start the daemon from a hook when it isn't already running (a failed
+  // start is cooled down for 60s so a broken config can't respawn on every hook).
+  "autoStartDaemon": true,
+
+  // Which source adapters the daemon activates. Codex also takes an optional
+  // sessionsDir override (defaults to ~/.codex/sessions).
+  "adapters": {
+    "claudeCode": { "enabled": true },
+    "codex": { "enabled": true }
   }
 }
 ```
+
+> The config block above must stay in sync with `configSchema` in
+> `packages/cli/src/lib/config.ts` — that schema is the source of truth.
 
 Status text is truncated to Slack's 100-character cap. `{agent}` is a friendly display
 name (`claude-code` → `claude`, `codex` → `codex`, `gemini-cli` → `gemini`); unknown

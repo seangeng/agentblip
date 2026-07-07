@@ -19,7 +19,9 @@ import {
 } from "../lib/crypto";
 import {
   DEVICE_PROVISIONAL_TTL_SEC,
+  PAIR_COMPLETE_TTL_SEC,
   PAIR_DELIVERED_TTL_SEC,
+  PAIR_STATE_TTL_SEC,
   PAIR_TTL_SEC,
   deleteDeviceRecord,
   deletePairState,
@@ -95,7 +97,8 @@ async function slackFailureResponse(
     await deleteDeviceRecord(c.env.STORE, tokenHash);
     return c.json({ error: "slack_revoked" }, 401);
   }
-  if (error === "ratelimited") return c.json({ error: "ratelimited" }, 429);
+  // Slack spells it "ratelimited"; we normalize to match our own limiter's code.
+  if (error === "ratelimited") return c.json({ error: "rate_limited" }, 429);
   return c.json({ error: "slack_error", detail: error }, 502);
 }
 
@@ -201,8 +204,20 @@ api.get("/slack/install", async (c) => {
     return c.redirect("/pair?error=expired");
   }
 
+  // Bind the OAuth round-trip to this browser: a random HttpOnly cookie is set
+  // here and its hash stored in the state record; the callback requires the
+  // cookie back. This forces the flow through /install (and its cross-site
+  // bounce), so a phisher can't skip straight to a minted Slack authorize URL.
+  const browserSecret = randomHex(32);
   const nonce = randomHex(32);
-  await putPairState(c.env.STORE, nonce, code);
+  await putPairState(c.env.STORE, nonce, {
+    code,
+    cookieHash: await sha256hex(browserSecret),
+  });
+  c.header(
+    "Set-Cookie",
+    `ab_pair=${browserSecret}; HttpOnly; Secure; SameSite=Lax; Path=/api/slack; Max-Age=${PAIR_STATE_TTL_SEC}`,
+  );
 
   const authorize = new URL("https://slack.com/oauth/v2/authorize");
   authorize.searchParams.set("client_id", c.env.SLACK_CLIENT_ID);
@@ -212,13 +227,29 @@ api.get("/slack/install", async (c) => {
   return c.redirect(authorize.toString());
 });
 
+function readPairCookie(header: string | undefined): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name === "ab_pair") return rest.join("=") || null;
+  }
+  return null;
+}
+
 api.get("/slack/callback", async (c) => {
   const state = c.req.query("state");
   const oauthCode = c.req.query("code");
 
-  const pairingCode = state ? await getPairState(c.env.STORE, state) : null;
-  if (!state || !pairingCode) return c.redirect("/pair?error=state");
+  const pairState = state ? await getPairState(c.env.STORE, state) : null;
+  if (!state || !pairState) return c.redirect("/pair?error=state");
   await deletePairState(c.env.STORE, state); // CSRF nonce is single-use
+
+  // The browser that started OAuth at /install must present its cookie back.
+  const cookie = readPairCookie(c.req.header("Cookie"));
+  if (!cookie || !timingSafeEqualHex(await sha256hex(cookie), pairState.cookieHash)) {
+    return c.redirect("/pair?error=state");
+  }
+  const pairingCode = pairState.code;
 
   const record = await getPairRecord(c.env.STORE, pairingCode);
   if (!record || record.status !== "pending") return c.redirect("/pair?error=expired");
@@ -252,12 +283,14 @@ api.get("/slack/callback", async (c) => {
     DEVICE_PROVISIONAL_TTL_SEC,
   );
 
-  await putPairRecord(c.env.STORE, pairingCode, {
-    ...record,
-    status: "complete",
-    deviceToken,
-    team: exchange.teamName,
-  });
+  await putPairRecord(
+    c.env.STORE,
+    pairingCode,
+    { ...record, status: "complete", deviceToken, team: exchange.teamName },
+    // Bound the plaintext-token window: the CLI is already polling, so a few
+    // minutes is ample; abandoned setups expire fast instead of lingering.
+    PAIR_COMPLETE_TTL_SEC,
+  );
 
   return c.redirect(`/pair?done=1&team=${encodeURIComponent(exchange.teamName)}`);
 });
@@ -326,11 +359,25 @@ api.post("/unlink", async (c) => {
   const auth = await authDevice(c.env.STORE, c.req.header("authorization"));
   if (!auth) return c.json({ error: "invalid_token" }, 401);
 
+  // The CLI owns the ownership decision (it holds the state), so it tells us
+  // whether to clear. Legacy clients send no body → default true (clear), which
+  // is the pre-ownership behavior. When clear is false the CLI has already
+  // restored/left the status appropriately; we only revoke the token here.
+  let clear = true;
   try {
-    const xoxp = await aesGcmDecrypt(auth.device.encToken, c.env.TOKEN_ENCRYPTION_KEY);
-    await setStatus(xoxp, null); // best-effort clear; failure still unlinks
+    const body = (await c.req.json()) as { clear?: unknown };
+    if (typeof body?.clear === "boolean") clear = body.clear;
   } catch {
-    // undecryptable token — proceed with the unlink regardless
+    // no/invalid body — keep the default
+  }
+
+  if (clear) {
+    try {
+      const xoxp = await aesGcmDecrypt(auth.device.encToken, c.env.TOKEN_ENCRYPTION_KEY);
+      await setStatus(xoxp, null); // best-effort clear; failure still unlinks
+    } catch {
+      // undecryptable token — proceed with the unlink regardless
+    }
   }
   await deleteDeviceRecord(c.env.STORE, auth.tokenHash);
   return c.json({ ok: true });

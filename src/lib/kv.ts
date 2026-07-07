@@ -12,6 +12,12 @@ export interface KVStore {
 
 export const PAIR_TTL_SEC = 900;
 export const PAIR_STATE_TTL_SEC = 600;
+/**
+ * After OAuth completes, the pair record holds the plaintext device token until
+ * the CLI polls for it. setup polls every 2s, so this bounds that window to a
+ * few minutes rather than the full pairing TTL.
+ */
+export const PAIR_COMPLETE_TTL_SEC = 300;
 /** Redelivery grace after the first complete poll, so one dropped response isn't fatal. */
 export const PAIR_DELIVERED_TTL_SEC = 60;
 /** Provisional device records self-expire unless promoted on first authenticated use. */
@@ -90,14 +96,27 @@ export async function deletePairDeviceIndex(kv: KVStore, deviceId: string): Prom
   await kv.delete(pairDeviceKey(deviceId));
 }
 
-// --- pairstate:{nonce} → code (OAuth CSRF state, single-use) ---
+// --- pairstate:{nonce} → {code, cookieHash} (OAuth CSRF state, single-use) ---
 
-export async function getPairState(kv: KVStore, nonce: string): Promise<string | null> {
-  return kv.get(pairStateKey(nonce));
+export interface PairState {
+  code: string;
+  /** sha256 of the HttpOnly cookie set at /install — binds OAuth to one browser. */
+  cookieHash: string;
 }
 
-export async function putPairState(kv: KVStore, nonce: string, code: string): Promise<void> {
-  await kv.put(pairStateKey(nonce), code, { expirationTtl: PAIR_STATE_TTL_SEC });
+export async function getPairState(kv: KVStore, nonce: string): Promise<PairState | null> {
+  const raw = await kv.get(pairStateKey(nonce));
+  return raw ? (JSON.parse(raw) as PairState) : null;
+}
+
+export async function putPairState(
+  kv: KVStore,
+  nonce: string,
+  state: PairState,
+): Promise<void> {
+  await kv.put(pairStateKey(nonce), JSON.stringify(state), {
+    expirationTtl: PAIR_STATE_TTL_SEC,
+  });
 }
 
 export async function deletePairState(kv: KVStore, nonce: string): Promise<void> {
