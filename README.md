@@ -1,27 +1,37 @@
-# agentblip
+<div align="center">
 
-**Your Slack status, synced with your local AI agents.** Every session is a blip on your team's radar.
+<a href="https://agentblip.com"><img src="assets/hero.png" alt="agentblip — your Slack status, synced with your AI agents" width="840"></a>
 
-[![npm](https://img.shields.io/npm/v/agentblip)](https://www.npmjs.com/package/agentblip)
-[![CI](https://github.com/seangeng/agentblip/actions/workflows/ci.yml/badge.svg)](https://github.com/seangeng/agentblip/actions/workflows/ci.yml)
-[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p>
+<a href="https://www.npmjs.com/package/agentblip"><img src="https://img.shields.io/npm/v/agentblip" alt="npm"></a>
+<a href="https://github.com/seangeng/agentblip/actions/workflows/ci.yml"><img src="https://github.com/seangeng/agentblip/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"></a>
+</p>
 
-[**agentblip.com**](https://agentblip.com) · [npm](https://www.npmjs.com/package/agentblip) · [GitHub](https://github.com/seangeng/agentblip)
+<p><strong><a href="https://agentblip.com">agentblip.com</a> · <a href="https://www.npmjs.com/package/agentblip">npm</a> · <a href="https://github.com/seangeng/agentblip">GitHub</a></strong></p>
 
-Your team can't see your agents. You kick off three Claude Code sessions, go heads-down
-reviewing what they produce, and on Slack you look… idle. Meanwhile someone pings you
-mid-run, an agent sits blocked on a permission prompt for twenty minutes, and nobody —
-including you — knows. Presence used to mean "at the keyboard." Now half the work is
-delegated, and the green dot has nothing to say about it.
+<img src="assets/demo.gif" alt="agentblip in action: your Slack status updates as your agents work" width="760">
+
+</div>
+
+## Your team can't see your agents
+
+You kick off three Claude Code sessions, go heads-down reviewing what they produce,
+and on Slack you look… idle. Meanwhile someone pings you mid-run, an agent sits blocked
+on a permission prompt for twenty minutes, and nobody — including you — knows. Presence
+used to mean "at the keyboard." Now half the work is delegated, and the green dot has
+nothing to say about it.
 
 agentblip turns local agent sessions into your Slack status — the little green light
-for the AI era:
+for the AI era. It formats everything on your machine (the relay only ever sees the
+finished string), and a rolling expiration means a dead daemon clears itself instead
+of lying.
 
 | Your status reads | When |
 |---|---|
 | 🤖 `claude agent working` | one session busy |
 | 🤖 `3 agents working` | three sessions busy |
-| 🤖 `claude: finalizing CI/CD` | `activity` granularity — what it's actually doing |
+| 🤖 `agentblip: finalizing CI/CD` | `activity` granularity — the repo and what it's doing |
 | ✋ `1 agent(s) waiting on me` | an agent is blocked on you |
 
 ## Quick start

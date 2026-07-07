@@ -1,0 +1,78 @@
+<svg width="1280" height="440" viewBox="0 0 1280 440" fill="none" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0a0f0d"/>
+      <stop offset="1" stop-color="#070a09"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(980 60) rotate(130) scale(520 640)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2fe373" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#2fe373" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blipGlow" cx="0" cy="0" r="1" gradientTransform="translate(96 150) scale(46)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2fe373" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#2fe373" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#2fe373" stroke-opacity="0.05" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="1280" height="440" fill="url(#bg)"/>
+  <rect width="1280" height="440" fill="url(#grid)"/>
+  <rect width="1280" height="440" fill="url(#glow)"/>
+
+  <!-- ── left: wordmark + tagline ── -->
+  <g>
+    <circle cx="96" cy="150" r="44" fill="url(#blipGlow)"/>
+    <circle cx="96" cy="150" r="11" fill="#2fe373"/>
+    <circle cx="96" cy="150" r="19" fill="none" stroke="#2fe373" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="96" cy="150" r="30" fill="none" stroke="#2fe373" stroke-opacity="0.22" stroke-width="1.5"/>
+
+    <text x="150" y="166" font-size="60" font-weight="700" letter-spacing="-1.5" fill="#f4f7f5">agentblip</text>
+
+    <text x="66" y="238" font-size="23" fill="#9db0a6">Your Slack status, synced with your AI agents.</text>
+    <text x="66" y="276" font-size="17" fill="#5f7168">Local Claude Code + Codex sessions become your team's presence.</text>
+
+    <!-- install chip -->
+    <g transform="translate(66 316)">
+      <rect width="392" height="46" rx="10" fill="#0e1512" stroke="#1c2a24"/>
+      <text x="18" y="30" font-size="16" fill="#3a8f5f">$</text>
+      <text x="36" y="30" font-size="16" fill="#cdd8d2">npm i -g agentblip</text>
+      <text x="238" y="30" font-size="16" fill="#4a5a52">&amp;&amp; agentblip setup</text>
+    </g>
+
+    <!-- meta -->
+    <text x="66" y="392" font-size="14" fill="#4a5a52">open source · MIT · local-first · agentblip.com</text>
+  </g>
+
+  <!-- ── right: Slack status mock ── -->
+  <g transform="translate(742 74)">
+    <rect width="472" height="292" rx="16" fill="#111b16" stroke="#2a3d34" stroke-width="1.5"/>
+    <!-- window dots -->
+    <circle cx="26" cy="28" r="5" fill="#33463d"/>
+    <circle cx="44" cy="28" r="5" fill="#33463d"/>
+    <circle cx="62" cy="28" r="5" fill="#33463d"/>
+    <text x="86" y="33" font-size="13" fill="#6b7d73">your slack status</text>
+    <line x1="0" y1="52" x2="472" y2="52" stroke="#223029"/>
+
+    <!-- status rows -->
+    <g transform="translate(24 78)">
+      <circle cx="8" cy="0" r="7" fill="#2fe373"/>
+      <text x="30" y="5" font-size="18" fill="#e7efea">claude agent working</text>
+    </g>
+    <g transform="translate(24 126)">
+      <circle cx="8" cy="0" r="7" fill="#2fe373"/>
+      <text x="30" y="5" font-size="18" fill="#e7efea">3 agents working</text>
+      <text x="196" y="5" font-size="18" fill="#5f7168"> · 1 waiting on me</text>
+    </g>
+    <g transform="translate(24 174)">
+      <circle cx="8" cy="0" r="7" fill="#2fe373"/>
+      <text x="30" y="5" font-size="18" fill="#e7efea">agentblip: finalizing CI/CD</text>
+    </g>
+    <g transform="translate(24 222)">
+      <circle cx="8" cy="0" r="7" fill="#f5a524"/>
+      <text x="30" y="5" font-size="18" fill="#cdd8d2">1 agent waiting on me</text>
+    </g>
+  </g>
+</svg>

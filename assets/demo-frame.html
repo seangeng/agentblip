@@ -1,0 +1,168 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; }
+  html, body { width: 2000px; height: 720px; overflow: hidden; background: #070a09; }
+  canvas { display: block; } /* backing store 2000x720; drawn at 2x, DSF=1 */
+</style>
+</head>
+<body>
+<canvas id="c" width="2000" height="720"></canvas>
+<script>
+// Deterministic frame renderer. Load as demo-frame.html?f=<frame>&n=<total>
+// and screenshot; every frame is a pure function of f, so a headless loop
+// produces a smooth GIF. Authored in a 1000x360 space, drawn at 2x.
+const params = new URLSearchParams(location.search);
+const f = parseInt(params.get("f") || "0", 10);
+const N = parseInt(params.get("n") || "60", 10);
+const t = f / N; // 0..1 loop position
+
+const ctx = document.getElementById("c").getContext("2d");
+ctx.scale(2, 2);
+const W = 1000, H = 360;
+const MONO = "600 26px ui-monospace, 'SF Mono', Menlo, monospace";
+
+const GREEN = "#2fe373", AMBER = "#f5a524", FG = "#e7efea", MUTE = "#6b7d73", FAINT = "#4a5a52";
+
+// four states, evenly spaced across the loop
+const STATES = [
+  { color: GREEN, count: 1, dot: GREEN, text: "claude agent working" },
+  { color: GREEN, count: 3, dot: GREEN, text: "3 agents working", suffix: " · 1 waiting on me" },
+  { color: GREEN, count: 3, dot: GREEN, text: "agentblip: finalizing CI/CD" },
+  { color: AMBER, count: 1, dot: AMBER, text: "1 agent waiting on me", waiting: true },
+];
+const per = 1 / STATES.length;
+const idx = Math.min(STATES.length - 1, Math.floor(t / per));
+const local = (t - idx * per) / per; // 0..1 within this state
+const s = STATES[idx];
+
+// fade the status text in/out at the state boundaries
+const fadeIn = Math.min(1, local / 0.18);
+const fadeOut = Math.min(1, (1 - local) / 0.18);
+const alpha = Math.min(fadeIn, fadeOut);
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// ── background ──
+ctx.fillStyle = "#0a0f0d";
+ctx.fillRect(0, 0, W, H);
+const glow = ctx.createRadialGradient(760, 40, 0, 760, 40, 480);
+glow.addColorStop(0, "rgba(47,227,115,0.12)");
+glow.addColorStop(1, "rgba(47,227,115,0)");
+ctx.fillStyle = glow;
+ctx.fillRect(0, 0, W, H);
+ctx.strokeStyle = "rgba(47,227,115,0.05)";
+ctx.lineWidth = 1;
+for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+// ── menu bar strip with the pulsing blip ──
+ctx.fillStyle = "#0c1310";
+ctx.fillRect(0, 0, W, 40);
+ctx.strokeStyle = "#16211b";
+ctx.beginPath(); ctx.moveTo(0, 40); ctx.lineTo(W, 40); ctx.stroke();
+ctx.fillStyle = FAINT;
+ctx.font = "500 13px ui-monospace, Menlo, monospace";
+ctx.fillText("menu bar", 20, 25);
+
+// blip: continuous pulse (2 pulses per loop), colored by state
+const bx = W - 42, by = 20;
+const pulse = (Math.sin(t * Math.PI * 2 * STATES.length) + 1) / 2; // 0..1
+ctx.beginPath();
+ctx.arc(bx, by, 9 + pulse * 8, 0, Math.PI * 2);
+ctx.strokeStyle = s.color;
+ctx.globalAlpha = 0.5 * (1 - pulse);
+ctx.lineWidth = 2;
+ctx.stroke();
+ctx.globalAlpha = 1;
+ctx.beginPath();
+ctx.arc(bx, by, 7, 0, Math.PI * 2);
+ctx.fillStyle = s.color;
+ctx.fill();
+if (s.count > 1) {
+  ctx.fillStyle = "#08110c";
+  ctx.font = "700 10px ui-monospace, Menlo, monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(String(s.count), bx, by + 3.5);
+  ctx.textAlign = "left";
+}
+
+// ── the Slack status card ──
+const cardX = 130, cardY = 120, cardW = 740, cardH = 150;
+roundRect(cardX, cardY, cardW, cardH, 18);
+ctx.fillStyle = "#111b16";
+ctx.fill();
+ctx.strokeStyle = "#2a3d34";
+ctx.lineWidth = 1.5;
+ctx.stroke();
+
+// avatar
+roundRect(cardX + 26, cardY + 34, 52, 52, 12);
+ctx.fillStyle = "#1b2a23";
+ctx.fill();
+ctx.beginPath();
+ctx.arc(cardX + 52, cardY + 60, 12, 0, Math.PI * 2);
+ctx.fillStyle = "#33463d";
+ctx.fill();
+// presence dot on avatar
+ctx.beginPath();
+ctx.arc(cardX + 78, cardY + 82, 8, 0, Math.PI * 2);
+ctx.fillStyle = s.color;
+ctx.fill();
+ctx.strokeStyle = "#111b16";
+ctx.lineWidth = 3;
+ctx.stroke();
+
+// name
+ctx.fillStyle = FG;
+ctx.font = "600 18px ui-monospace, Menlo, monospace";
+ctx.fillText("you", cardX + 104, cardY + 52);
+ctx.fillStyle = FAINT;
+ctx.font = "500 13px ui-monospace, Menlo, monospace";
+ctx.fillText("active", cardX + 150, cardY + 51);
+
+// status pill (fades on state change)
+ctx.globalAlpha = alpha;
+const pillX = cardX + 104, pillY = cardY + 66, pillH = 40;
+ctx.font = MONO;
+const textW = ctx.measureText(s.text + (s.suffix || "")).width;
+const pillW = textW + 66;
+roundRect(pillX, pillY, pillW, pillH, 10);
+ctx.fillStyle = "#0c1512";
+ctx.fill();
+ctx.strokeStyle = "#22332b";
+ctx.lineWidth = 1;
+ctx.stroke();
+// dot
+ctx.beginPath();
+ctx.arc(pillX + 22, pillY + pillH / 2, 7, 0, Math.PI * 2);
+ctx.fillStyle = s.dot;
+ctx.fill();
+// text
+ctx.fillStyle = FG;
+ctx.font = MONO;
+ctx.fillText(s.text, pillX + 40, pillY + 27);
+if (s.suffix) {
+  const w2 = ctx.measureText(s.text).width;
+  ctx.fillStyle = MUTE;
+  ctx.fillText(s.suffix, pillX + 40 + w2, pillY + 27);
+}
+ctx.globalAlpha = 1;
+
+// caption
+ctx.fillStyle = MUTE;
+ctx.font = "500 15px ui-monospace, Menlo, monospace";
+ctx.fillText("your status tracks your agents, formatted on your machine", cardX, cardY + cardH + 44);
+</script>
+</body>
+</html>
