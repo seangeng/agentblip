@@ -117,6 +117,47 @@ export function saveConfig(config: Config, file = configPath()): void {
   fs.chmodSync(file, 0o600);
 }
 
+/**
+ * The subset of config the running daemon can change on the fly (via the menu
+ * bar app / POST /config). Anything affecting the connection — mode, port,
+ * tokens, relayUrl — needs a restart and is intentionally excluded.
+ */
+export const liveConfigPatchSchema = z
+  .object({
+    granularity: z.enum(["off", "presence", "count", "activity"]),
+    statusPolicy: z.enum(["respect", "overwrite"]),
+    showProject: z.boolean(),
+  })
+  .partial()
+  .strict();
+
+export type LiveConfigPatch = z.infer<typeof liveConfigPatchSchema>;
+
+/** Config view safe to expose over the loopback API — never includes tokens. */
+export interface SafeConfig {
+  mode: Config["mode"];
+  relayUrl: string;
+  port: number;
+  granularity: Config["granularity"];
+  statusPolicy: Config["statusPolicy"];
+  showProject: boolean;
+  statusTtlSec: number;
+  debounceMs: number;
+}
+
+export function safeConfig(config: Config): SafeConfig {
+  return {
+    mode: config.mode,
+    relayUrl: config.relayUrl,
+    port: config.port,
+    granularity: config.granularity,
+    statusPolicy: config.statusPolicy,
+    showProject: config.showProject,
+    statusTtlSec: config.statusTtlSec,
+    debounceMs: config.debounceMs,
+  };
+}
+
 export function formatOptionsFromConfig(config: Config): FormatOptions {
   return {
     granularity: config.granularity,

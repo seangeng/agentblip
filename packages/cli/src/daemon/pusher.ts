@@ -91,12 +91,13 @@ export class Pusher {
 
   private readonly store: SessionStore;
   private readonly sink: Sink;
-  private readonly formatOpts: FormatOptions;
-  private readonly policy: StatusPolicy;
+  // Mutable: the menu bar app / POST /config can retune formatting + policy live.
+  private formatOpts: FormatOptions;
+  private policy: StatusPolicy;
   private readonly persistOwnershipFn?: (state: OwnershipState) => void;
   private readonly debounceMs: number;
   private readonly sweepIntervalMs: number;
-  private readonly ttlSec: number;
+  private ttlSec: number;
   private readonly log: (message: string) => void;
 
   private ownership: OwnershipState;
@@ -127,6 +128,19 @@ export class Pusher {
       // restored / our stale status cleared even before any event arrives.
       this.lastSignature = RETRY;
     }
+  }
+
+  /**
+   * Retune formatting/policy without a restart (menu bar app / POST /config).
+   * Forces a re-push so the new formatting or the policy change takes effect
+   * immediately rather than on the next event.
+   */
+  applyConfig(formatOpts: FormatOptions, policy: StatusPolicy): void {
+    this.formatOpts = formatOpts;
+    this.policy = policy;
+    this.ttlSec = formatOpts.statusTtlSec ?? DEFAULT_STATUS_TTL_SEC;
+    this.lastSignature = RETRY; // guarantee the next evaluate() re-pushes
+    this.evaluate();
   }
 
   /** Surfaced on /state and /health for the status/doctor commands. */

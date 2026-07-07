@@ -5,6 +5,7 @@ import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionEvent } from "@agentblip/core";
+import type { SafeConfig } from "../src/lib/config";
 import type { OwnershipSummary } from "../src/daemon/pusher";
 import { createDaemonServer } from "../src/daemon/server";
 import { createDaemonSecret } from "../src/lib/daemon-auth";
@@ -19,7 +20,20 @@ interface TestHarness {
   lastError: { value?: string };
   ownership: { value: OwnershipSummary };
   pauseStarted: { value: boolean };
+  config: { value: SafeConfig };
+  configPatches: Array<Record<string, unknown>>;
 }
+
+const BASE_CONFIG: SafeConfig = {
+  mode: "relay",
+  relayUrl: "https://agentblip.com",
+  port: 4519,
+  granularity: "count",
+  statusPolicy: "respect",
+  showProject: false,
+  statusTtlSec: 300,
+  debounceMs: 10000,
+};
 
 async function startServer(): Promise<TestHarness> {
   const applied: SessionEvent[] = [];
@@ -28,6 +42,8 @@ async function startServer(): Promise<TestHarness> {
     value: { backedOff: false, savedPrior: false, policy: "respect" },
   };
   const pauseStarted = { value: false };
+  const config = { value: { ...BASE_CONFIG } };
+  const configPatches: Array<Record<string, unknown>> = [];
   const server = createDaemonServer({
     secret: SECRET,
     applyEvent: (event) => applied.push(event),
@@ -51,12 +67,18 @@ async function startServer(): Promise<TestHarness> {
       return new Promise<void>(() => {}); // hangs — like a slow sink push
     },
     resume: () => {},
+    getConfig: () => config.value,
+    setConfig: (patch) => {
+      configPatches.push(patch);
+      config.value = { ...config.value, ...patch };
+      return config.value;
+    },
   });
   await new Promise<void>((resolve) => {
     server.listen(0, "127.0.0.1", resolve);
   });
   const port = (server.address() as AddressInfo).port;
-  return { server, port, applied, lastError, ownership, pauseStarted };
+  return { server, port, applied, lastError, ownership, pauseStarted, config, configPatches };
 }
 
 const event: SessionEvent = {
@@ -153,6 +175,49 @@ describe("daemon server auth", () => {
     expect((await res.json()) as object).toEqual({ ok: true, paused: true });
     expect(Date.now() - started).toBeLessThan(1000);
     expect(h.pauseStarted.value).toBe(true);
+  });
+
+  it("GET /config returns the token-free config view", async () => {
+    const res = await fetch(url("/config"), {
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()) as SafeConfig).toEqual(BASE_CONFIG);
+  });
+
+  it("POST /config applies a valid live patch and echoes the new config", async () => {
+    const res = await fetch(url("/config"), {
+      method: "POST",
+      headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json" },
+      body: JSON.stringify({ granularity: "activity", statusPolicy: "overwrite" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as SafeConfig;
+    expect(body.granularity).toBe("activity");
+    expect(body.statusPolicy).toBe("overwrite");
+    expect(h.configPatches).toEqual([{ granularity: "activity", statusPolicy: "overwrite" }]);
+  });
+
+  it("POST /config rejects unknown/immutable keys and bad values", async () => {
+    for (const bad of [{ port: 9000 }, { deviceToken: "x" }, { granularity: "loud" }]) {
+      const res = await fetch(url("/config"), {
+        method: "POST",
+        headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json" },
+        body: JSON.stringify(bad),
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(h.configPatches).toHaveLength(0); // nothing applied
+  });
+
+  it("/config requires the daemon secret", async () => {
+    expect((await fetch(url("/config"))).status).toBe(401);
+    const post = await fetch(url("/config"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(post.status).toBe(401);
   });
 });
 

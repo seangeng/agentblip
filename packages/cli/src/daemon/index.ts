@@ -3,7 +3,7 @@ import { SessionStore, formatStatus } from "@agentblip/core";
 import type { SessionEvent } from "@agentblip/core";
 import { codexSessionsDir, createCodexWatcher } from "../adapters/codex";
 import type { CodexWatcher } from "../adapters/codex";
-import { formatOptionsFromConfig } from "../lib/config";
+import { formatOptionsFromConfig, safeConfig, saveConfig } from "../lib/config";
 import type { Config } from "../lib/config";
 import { createDaemonSecret } from "../lib/daemon-auth";
 import { loadOwnershipState, saveOwnershipState } from "../lib/ownership-state";
@@ -32,7 +32,10 @@ export async function runDaemon(config: Config): Promise<void> {
 
   const store = new SessionStore();
   const sink = createSink(config);
-  const formatOpts = formatOptionsFromConfig(config);
+  // Mutable so the menu bar app / POST /config can retune formatting live; the
+  // getState/getConfig closures below read these variables, not a snapshot.
+  let liveConfig = config;
+  let formatOpts = formatOptionsFromConfig(config);
   const pusher = new Pusher({
     store,
     sink,
@@ -78,6 +81,15 @@ export async function runDaemon(config: Config): Promise<void> {
     pause: () => pusher.pause(),
     resume: () => {
       pusher.resume();
+    },
+    getConfig: () => safeConfig(liveConfig),
+    setConfig: (patch) => {
+      liveConfig = { ...liveConfig, ...patch };
+      formatOpts = formatOptionsFromConfig(liveConfig);
+      pusher.applyConfig(formatOpts, liveConfig.statusPolicy);
+      saveConfig(liveConfig);
+      log(`config updated via API: ${Object.keys(patch).join(", ") || "(none)"}`);
+      return safeConfig(liveConfig);
     },
   });
 

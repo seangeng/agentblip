@@ -2,6 +2,8 @@ import http from "node:http";
 import { sessionEventSchema } from "@agentblip/core";
 import type { SessionEvent, SlackStatus, StatusSnapshot } from "@agentblip/core";
 import { secretsEqual } from "../lib/daemon-auth";
+import { liveConfigPatchSchema } from "../lib/config";
+import type { LiveConfigPatch, SafeConfig } from "../lib/config";
 import type { OwnershipSummary } from "./pusher";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -21,6 +23,10 @@ export interface DaemonServerDeps {
   getOwnership(): OwnershipSummary;
   pause(): Promise<void>;
   resume(): void;
+  /** Token-free config view (GET /config). */
+  getConfig(): SafeConfig;
+  /** Apply live-tunable settings and persist them (POST /config). */
+  setConfig(patch: LiveConfigPatch): SafeConfig;
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -115,6 +121,30 @@ export function createDaemonServer(deps: DaemonServerDeps): http.Server {
       if (method === "POST" && url === "/resume") {
         deps.resume();
         json(res, 200, { ok: true, paused: false });
+        return;
+      }
+      if (method === "GET" && url === "/config") {
+        json(res, 200, deps.getConfig());
+        return;
+      }
+      if (method === "POST" && url === "/config") {
+        const body = await readBody(req);
+        let raw: unknown;
+        try {
+          raw = JSON.parse(body) as unknown;
+        } catch {
+          json(res, 400, { ok: false, error: "invalid JSON body" });
+          return;
+        }
+        const parsed = liveConfigPatchSchema.safeParse(raw);
+        if (!parsed.success) {
+          const detail = parsed.error.issues
+            .map((i) => `${i.path.join(".")}: ${i.message}`)
+            .join("; ");
+          json(res, 400, { ok: false, error: detail });
+          return;
+        }
+        json(res, 200, deps.setConfig(parsed.data));
         return;
       }
       json(res, 404, { ok: false, error: "not found" });
