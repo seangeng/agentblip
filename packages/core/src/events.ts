@@ -43,6 +43,17 @@ export const statusUpdateRequestSchema = z.object({
 });
 export type StatusUpdateRequest = z.infer<typeof statusUpdateRequestSchema>;
 
+/**
+ * GET /api/slack/status — response. `readable: false` means the stored token
+ * lacks the users.profile:read scope (pre-ownership pairing) — callers fall
+ * back to legacy blind pushes. `status: null` = profile has no status set.
+ */
+export const statusReadResponseSchema = z.object({
+  readable: z.boolean(),
+  status: slackStatusSchema.nullable(),
+});
+export type StatusReadResponse = z.infer<typeof statusReadResponseSchema>;
+
 // --- Pairing (device-code flow) ---
 
 /** POST /api/pair/start — response. */
