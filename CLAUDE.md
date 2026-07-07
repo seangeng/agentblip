@@ -70,6 +70,10 @@ Any tool (curl) ───┼─────────────────�
 │           ├── commands/      # setup, start, status, emit, hook, pause, unlink, doctor
 │           ├── adapters/      # claude-code (hooks), codex (notify+watcher)
 │           └── sinks/         # relay, slack-direct, console
+├── apps/
+│   └── menubar/               # native SwiftUI macOS menu bar app (thin daemon client)
+│       ├── Sources/AgentblipMenuBar/  # App, AppModel(poll loop), DaemonClient, Models, StatusIcon, MenuContent
+│       └── scripts/make-app.sh        # SwiftPM build → agentblip.app (LSUIElement)
 └── docs/                      # SELF_HOSTING.md, INTEGRATIONS.md, slack-app-manifest
 ```
 
@@ -82,7 +86,12 @@ Any tool (curl) ───┼─────────────────�
 - `GET  /api/slack/callback` — OAuth exchange, links Slack user to pending pairing
 - `GET  /api/slack/status` — `Bearer ab_…` device token; returns `{readable, status}` (`statusReadResponseSchema`) — current Slack status, read transiently for the daemon's ownership decision; `readable:false` = token predates the read scope (legacy blind pushes)
 - `POST /api/status` — `Bearer ab_…` device token; body `{status: SlackStatus | null}`; null clears
-- `POST /api/unlink` — revoke device, clear status
+- `POST /api/unlink` — revoke device; body `{clear?: boolean}` (default true) decides whether to wipe the status (CLI runs the ownership plan and sends `clear:false` for foreign/restored statuses)
+
+### Daemon loopback API (127.0.0.1:4519, bearer secret except /health)
+
+- `GET /health` · `GET /state` · `POST /event` · `POST /pause` · `POST /resume`
+- `GET /config` — token-free `safeConfig` view · `POST /config` — live-tune `granularity`/`statusPolicy`/`showProject` (validated by `liveConfigPatchSchema`, applied via `pusher.applyConfig()`, persisted). Used by the menu bar app.
 
 Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worker).
 
@@ -104,6 +113,7 @@ Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worke
 | 2026-07-06 | Slack tokens AES-GCM-encrypted in KV (`TOKEN_ENCRYPTION_KEY` secret) | KV dump alone can't leak xoxp tokens |
 | 2026-07-06 | Rolling `status_expiration` (5 min default) | Dead daemon → status auto-clears; no stale "working" lies |
 | 2026-07-06 | Hook/adapter events → tiny localhost HTTP API | One integration surface; Claude Code hooks, Codex, and any custom tool all speak the same `POST /event` |
+| 2026-07-07 | macOS menu bar app is a thin native SwiftUI client of the daemon's loopback API (apps/menubar), NOT a reimplementation | Preserves DRY — all logic stays in core/daemon; app is presentation+control only. SwiftPM executable + make-app.sh bundle (no Xcode/pbxproj), so it builds from CLI. Needed a live `GET`/`POST /config` on the daemon so the app retunes settings without a restart |
 | 2026-07-06 | npm workspaces (core, cli) + root Worker app | Matches newest house projects (littledemo, motioness); core stays source-only, bundled by consumers |
 | 2026-07-06 | RR7 SSR framework mode | Current house standard (extractvibe, stackhooks, ogrender) |
 | 2026-07-06 | Static OG image v1 (no satori) | One marketing page; not worth the wasm weight yet |

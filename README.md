@@ -249,6 +249,19 @@ schema, event semantics, staleness rules, and adapter-writing guide:
 | `agentblip unlink` | Revoke this device's token and clear the status |
 | `agentblip doctor [--json]` | Diagnose config, daemon, hooks, and connectivity |
 
+## Menu bar app (macOS)
+
+A tiny native SwiftUI menu bar app puts the blip on your own screen — a colored
+dot that shows idle / N working / waiting, with a dropdown to pause, change the
+detail level, and flip the overwrite-vs-respect policy live. It's a thin client
+of the daemon (holds no logic of its own), so nothing duplicates the core.
+
+```bash
+cd apps/menubar && ./scripts/make-app.sh && open dist/agentblip.app
+```
+
+Requires macOS 13+ and the daemon running. See [`apps/menubar/`](apps/menubar/README.md).
+
 ## Self-hosting & direct mode
 
 The relay is one Cloudflare Worker with one KV namespace — fork the repo, create the

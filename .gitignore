@@ -10,3 +10,8 @@ worker-configuration.d.ts
 .env.*
 .dev.vars
 coverage/
+
+# Swift (apps/menubar)
+.build/
+.swiftpm/
+*.xcodeproj
