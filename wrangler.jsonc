@@ -23,7 +23,7 @@
   "vars": {
     "BASE_URL": "https://agentblip.com",
     // Slack app client id is public by design (appears in OAuth URLs).
-    "SLACK_CLIENT_ID": ""
+    "SLACK_CLIENT_ID": "7050636327252.11522711560115"
   }
 
   // Secrets (set via `wrangler secret put NAME`):
