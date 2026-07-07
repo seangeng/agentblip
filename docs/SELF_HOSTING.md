@@ -60,8 +60,16 @@ Copy the generated id into `wrangler.jsonc`:
 4. Create the app, then from **Basic Information** copy the **Client ID** and
    **Client Secret**.
 
-The app requests a single user scope, `users.profile:write` — it can set your status
-and nothing else.
+The app requests two user scopes: `users.profile:write` (set your status) and
+`users.profile:read` (read the current status before each update, so agentblip never
+overwrites a status it didn't set). It can touch your status and nothing else.
+
+> **Upgrading an existing install?** The `users.profile:read` scope is new. Update
+> your Slack app's manifest at [api.slack.com/apps](https://api.slack.com/apps) (your
+> app → **App Manifest** page) to match `docs/slack-app-manifest.json`, then have
+> users re-pair (`agentblip unlink && agentblip setup`) so their tokens carry the new
+> scope. Tokens without it keep working, but degrade to the old blind-push behavior —
+> the relay reports `readable: false` and the daemon can't respect existing statuses.
 
 ## 4. Set secrets
 

@@ -5,6 +5,7 @@ import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionEvent } from "@agentblip/core";
+import type { OwnershipSummary } from "../src/daemon/pusher";
 import { createDaemonServer } from "../src/daemon/server";
 import { createDaemonSecret } from "../src/lib/daemon-auth";
 import { getHealth, getState, pauseDaemon, postEvent } from "../src/lib/daemon-client";
@@ -16,12 +17,16 @@ interface TestHarness {
   port: number;
   applied: SessionEvent[];
   lastError: { value?: string };
+  ownership: { value: OwnershipSummary };
   pauseStarted: { value: boolean };
 }
 
 async function startServer(): Promise<TestHarness> {
   const applied: SessionEvent[] = [];
   const lastError: { value?: string } = {};
+  const ownership: { value: OwnershipSummary } = {
+    value: { backedOff: false, savedPrior: false, policy: "respect" },
+  };
   const pauseStarted = { value: false };
   const server = createDaemonServer({
     secret: SECRET,
@@ -40,6 +45,7 @@ async function startServer(): Promise<TestHarness> {
       lastError: lastError.value,
     }),
     getLastError: () => lastError.value,
+    getOwnership: () => ownership.value,
     pause: () => {
       pauseStarted.value = true;
       return new Promise<void>(() => {}); // hangs — like a slow sink push
@@ -50,7 +56,7 @@ async function startServer(): Promise<TestHarness> {
     server.listen(0, "127.0.0.1", resolve);
   });
   const port = (server.address() as AddressInfo).port;
-  return { server, port, applied, lastError, pauseStarted };
+  return { server, port, applied, lastError, ownership, pauseStarted };
 }
 
 const event: SessionEvent = {
@@ -110,6 +116,22 @@ describe("daemon server auth", () => {
     });
     expect(res.status).toBe(200);
     expect(h.applied).toHaveLength(1);
+  });
+
+  it("includes the ownership summary in /state and /health", async () => {
+    h.ownership.value = { backedOff: true, savedPrior: true, policy: "overwrite" };
+
+    const state = await fetch(url("/state"), {
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(state.status).toBe(200);
+    const stateBody = (await state.json()) as { ownership: OwnershipSummary };
+    expect(stateBody.ownership).toEqual(h.ownership.value);
+
+    const health = await fetch(url("/health"));
+    expect(health.status).toBe(200);
+    const healthBody = (await health.json()) as { ownership: OwnershipSummary };
+    expect(healthBody.ownership).toEqual(h.ownership.value);
   });
 
   it("surfaces lastError via /health without auth", async () => {

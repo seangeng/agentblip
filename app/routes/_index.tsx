@@ -320,7 +320,9 @@ export default function Index(_: Route.ComponentProps) {
                 session data stay on your machine. The relay receives exactly
                 one thing — the final status text it sets on Slack. Tokens are
                 AES-GCM encrypted at rest, and the whole thing is MIT and
-                self-hostable.
+                self-hostable. And it won&rsquo;t fight your existing status:
+                agentblip checks first and never overwrites a status it
+                didn&rsquo;t set.
               </p>
             </div>
             <div className="flex shrink-0 flex-col gap-3 font-mono text-sm">

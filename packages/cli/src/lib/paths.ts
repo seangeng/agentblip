@@ -39,3 +39,8 @@ export function daemonSecretPath(): string {
 export function startFailedMarkerPath(): string {
   return path.join(stateDir(), "daemon.start-failed");
 }
+
+/** Persisted OwnershipState — survives daemon restarts/crashes. */
+export function ownershipStatePath(): string {
+  return path.join(stateDir(), "ownership.json");
+}

@@ -6,8 +6,9 @@ import {
 import { codexConfigPath, isCodexNotifyInstalled } from "../adapters/codex";
 import { loadConfig, loadConfigSafe } from "../lib/config";
 import type { Config } from "../lib/config";
-import { getHealth } from "../lib/daemon-client";
+import { getHealth, sinkConfigured } from "../lib/daemon-client";
 import { configPath } from "../lib/paths";
+import { createSink } from "../sinks";
 import {
   dim,
   errorMessage,
@@ -71,6 +72,15 @@ export async function runDoctor(opts: DoctorOptions): Promise<void> {
     );
   }
 
+  checks.push(
+    ok(
+      "status policy",
+      cfg.statusPolicy === "respect"
+        ? "respect — never overwrites a status agentblip didn't set"
+        : "overwrite — displaces an existing status while agents work, restores it after",
+    ),
+  );
+
   try {
     const health = await getHealth(cfg.port);
     checks.push(
@@ -79,10 +89,36 @@ export async function runDoctor(opts: DoctorOptions): Promise<void> {
     if (health.lastError) {
       checks.push(fail("sink", health.lastError));
     }
+    if (health.ownership?.backedOff) {
+      checks.push(
+        warn(
+          "ownership",
+          "standing down — your existing Slack status is untouched; agentblip resumes when it clears",
+        ),
+      );
+    }
   } catch {
     checks.push(
       warn("daemon", `not running on 127.0.0.1:${cfg.port} — \`agentblip start --detach\``),
     );
+  }
+
+  // Legacy-read probe: a token without users.profile:read still pushes, but
+  // the ownership guard can't see an existing status (legacy blind pushes).
+  if (cfg.mode !== "console" && sinkConfigured(cfg)) {
+    try {
+      const read = await createSink(cfg).getStatus();
+      checks.push(
+        read.readable
+          ? ok("status read", "token can read the current status (ownership guard active)")
+          : warn(
+              "status read",
+              "token lacks users.profile:read — existing statuses can't be detected (legacy mode); run `agentblip setup` to re-pair",
+            ),
+      );
+    } catch (err) {
+      checks.push(warn("status read", errorMessage(err)));
+    }
   }
 
   if (cfg.mode === "relay") {

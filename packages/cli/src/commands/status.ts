@@ -32,6 +32,15 @@ export async function runStatus(opts: StatusOptions): Promise<void> {
   if (state.paused) {
     console.log(yellow("paused — status updates suspended (`agentblip resume`)"));
   }
+  if (state.ownership?.backedOff) {
+    console.log(
+      yellow(
+        bold(
+          "standing down — your existing Slack status is untouched; agentblip resumes when it clears",
+        ),
+      ),
+    );
+  }
   if (state.lastError) {
     console.log(yellow(`sink error: ${state.lastError}`));
   }

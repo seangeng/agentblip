@@ -171,6 +171,22 @@ export async function runSetup(opts: SetupOptions = {}): Promise<void> {
     Math.max(0, granularities.indexOf(config.granularity)),
   );
 
+  const policies = ["respect", "overwrite"] as const;
+  config.statusPolicy = await select(
+    "\nIf your Slack status is already set by you or another app:",
+    [
+      {
+        value: "respect",
+        label: "respect it (recommended) — agentblip stands down until it clears",
+      },
+      {
+        value: "overwrite",
+        label: "overwrite while agents work (restores it after)",
+      },
+    ],
+    Math.max(0, policies.indexOf(config.statusPolicy)),
+  );
+
   console.log("");
   const wantClaude = await confirm(
     `Install Claude Code hooks (${claudeSettingsPath()})?`,

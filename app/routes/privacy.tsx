@@ -83,6 +83,19 @@ export default function Privacy(_: Route.ComponentProps) {
           your redaction patterns are applied locally before the text is sent.
         </p>
 
+        <H2>Why it can read your status</H2>
+        <p className="mt-4 leading-relaxed text-fg-muted">
+          agentblip requests the{" "}
+          <code className="font-mono text-sm text-fg">users.profile:read</code>{" "}
+          Slack scope for exactly one reason: before each update, your daemon
+          checks what your status currently is so it never overwrites one you
+          (or another app) set. In relay mode that check goes through the
+          relay, which reads the status from Slack and hands it straight back
+          to your daemon — transiently, per update decision. The relay does
+          not store, log, or retain what it read; the write-or-stand-down
+          decision itself is made on your machine.
+        </p>
+
         <H2>What the relay stores</H2>
         <ul className="mt-4 flex list-disc flex-col gap-2.5 pl-5 leading-relaxed text-fg-muted marker:text-phosphor-600">
           <li>

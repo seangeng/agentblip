@@ -6,6 +6,7 @@ import type { CodexWatcher } from "../adapters/codex";
 import { formatOptionsFromConfig } from "../lib/config";
 import type { Config } from "../lib/config";
 import { createDaemonSecret } from "../lib/daemon-auth";
+import { loadOwnershipState, saveOwnershipState } from "../lib/ownership-state";
 import { stateDir } from "../lib/paths";
 import {
   isProcessAlive,
@@ -36,6 +37,11 @@ export async function runDaemon(config: Config): Promise<void> {
     store,
     sink,
     formatOpts,
+    policy: config.statusPolicy,
+    // Survives restarts: a crash while a foreign status was displaced must
+    // still restore it. Corrupt/missing file falls back to the empty state.
+    initialOwnership: loadOwnershipState(),
+    persistOwnership: (state) => saveOwnershipState(state),
     debounceMs: config.debounceMs,
     log,
   });
@@ -68,6 +74,7 @@ export async function runDaemon(config: Config): Promise<void> {
       };
     },
     getLastError: () => pusher.lastError,
+    getOwnership: () => pusher.ownershipSummary(),
     pause: () => pusher.pause(),
     resume: () => {
       pusher.resume();
@@ -97,7 +104,7 @@ export async function runDaemon(config: Config): Promise<void> {
     }
 
     log(
-      `agentblip daemon listening on 127.0.0.1:${config.port} (sink: ${sink.name}, granularity: ${config.granularity})`,
+      `agentblip daemon listening on 127.0.0.1:${config.port} (sink: ${sink.name}, granularity: ${config.granularity}, statusPolicy: ${config.statusPolicy})`,
     );
 
     let shuttingDown = false;

@@ -7,7 +7,7 @@
   "oauth_config": {
     "redirect_urls": ["https://agentblip.com/api/slack/callback"],
     "scopes": {
-      "user": ["users.profile:write"]
+      "user": ["users.profile:write", "users.profile:read"]
     }
   },
   "settings": {

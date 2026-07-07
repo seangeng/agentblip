@@ -1,6 +1,9 @@
 import {
+  SLACK_PROFILE_GET_URL,
   SLACK_PROFILE_SET_URL,
+  fromSlackProfile,
   toSlackProfile,
+  type SlackProfileFields,
   type SlackStatus,
 } from "@agentblip/core";
 
@@ -18,6 +21,16 @@ export type OauthExchangeResult =
   | { ok: false; error: string };
 
 export type SetStatusResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * `readable: false` = the stored token predates the users.profile:read scope
+ * (Slack said missing_scope) — callers fall back to legacy blind pushes.
+ * `status: null` = the profile has no status set.
+ */
+export type GetStatusResult =
+  | { ok: true; readable: true; status: SlackStatus | null }
+  | { ok: true; readable: false }
+  | { ok: false; error: string };
 
 interface SlackOauthResponse {
   ok: boolean;
@@ -65,6 +78,34 @@ export async function oauthExchange(params: {
     teamId: data.team?.id ?? "",
     teamName: data.team?.name ?? "",
   };
+}
+
+interface SlackProfileGetResponse {
+  ok: boolean;
+  error?: string;
+  profile?: SlackProfileFields;
+}
+
+/** GET users.profile.get — reads the current status so we never clobber a foreign one. */
+export async function getStatus(xoxpToken: string): Promise<GetStatusResult> {
+  let data: SlackProfileGetResponse;
+  try {
+    const res = await fetch(SLACK_PROFILE_GET_URL, {
+      method: "GET",
+      headers: { authorization: `Bearer ${xoxpToken}` },
+      signal: AbortSignal.timeout(SLACK_TIMEOUT_MS),
+    });
+    data = (await res.json()) as SlackProfileGetResponse;
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
+
+  if (!data.ok) {
+    if (data.error === "missing_scope") return { ok: true, readable: false };
+    return { ok: false, error: data.error ?? "unknown_error" };
+  }
+
+  return { ok: true, readable: true, status: fromSlackProfile(data.profile) };
 }
 
 /** POST users.profile.set — `status: null` clears the Slack status entirely. */

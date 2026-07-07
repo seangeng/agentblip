@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent, SlackStatus, StatusSnapshot } from "@agentblip/core";
+import type { OwnershipSummary } from "../daemon/pusher";
 import type { Config } from "./config";
 import { readDaemonSecret } from "./daemon-auth";
 import { logFilePath, spawnLockPath, startFailedMarkerPath, stateDir } from "./paths";
@@ -19,6 +20,8 @@ export interface DaemonState {
   formatted: SlackStatus | null;
   paused: boolean;
   lastError?: string;
+  /** Optional: daemons predating the ownership guard don't report it. */
+  ownership?: OwnershipSummary;
 }
 
 export interface DaemonHealth {
@@ -26,6 +29,8 @@ export interface DaemonHealth {
   pid: number;
   uptimeSec: number;
   lastError?: string;
+  /** Optional: daemons predating the ownership guard don't report it. */
+  ownership?: OwnershipSummary;
 }
 
 async function daemonFetch<T>(

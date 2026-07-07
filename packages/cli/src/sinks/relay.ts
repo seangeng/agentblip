@@ -1,4 +1,9 @@
-import type { SlackStatus, StatusUpdateRequest } from "@agentblip/core";
+import { statusReadResponseSchema } from "@agentblip/core";
+import type {
+  SlackStatus,
+  StatusReadResponse,
+  StatusUpdateRequest,
+} from "@agentblip/core";
 import { PermanentSinkError } from "./types";
 import type { Sink } from "./types";
 
@@ -6,6 +11,7 @@ const PUSH_TIMEOUT_MS = 10_000;
 
 export function createRelaySink(relayUrl: string, deviceToken: string): Sink {
   const endpoint = new URL("/api/status", relayUrl).toString();
+  const readEndpoint = new URL("/api/slack/status", relayUrl).toString();
   return {
     name: "relay",
     async push(status: SlackStatus | null): Promise<void> {
@@ -26,6 +32,20 @@ export function createRelaySink(relayUrl: string, deviceToken: string): Sink {
         );
       }
       if (!res.ok) throw new Error(`relay responded ${res.status}`);
+    },
+    async getStatus(): Promise<StatusReadResponse> {
+      const res = await fetch(readEndpoint, {
+        headers: { authorization: `Bearer ${deviceToken}` },
+        signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
+      });
+      if (res.status === 401) {
+        // permanent: the relay deleted this device — retrying can't fix it
+        throw new PermanentSinkError(
+          "device unlinked or token revoked — run `agentblip setup` to pair again",
+        );
+      }
+      if (!res.ok) throw new Error(`relay responded ${res.status}`);
+      return statusReadResponseSchema.parse(await res.json());
     },
   };
 }

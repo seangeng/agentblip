@@ -8,7 +8,12 @@ import { loadConfig, loadConfigSafe, saveConfig } from "../src/lib/config";
 let dir: string;
 let file: string;
 const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ["AGENTBLIP_RELAY_URL", "AGENTBLIP_TOKEN", "AGENTBLIP_PORT"];
+const ENV_KEYS = [
+  "AGENTBLIP_RELAY_URL",
+  "AGENTBLIP_TOKEN",
+  "AGENTBLIP_PORT",
+  "AGENTBLIP_STATUS_POLICY",
+];
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentblip-config-"));
@@ -34,6 +39,7 @@ describe("config", () => {
     expect(config.relayUrl).toBe("https://agentblip.com");
     expect(config.port).toBe(DEFAULT_DAEMON_PORT);
     expect(config.granularity).toBe("count");
+    expect(config.statusPolicy).toBe("respect");
     expect(config.showProject).toBe(false);
     expect(config.statusTtlSec).toBe(DEFAULT_STATUS_TTL_SEC);
     expect(config.debounceMs).toBe(DEFAULT_DEBOUNCE_MS);
@@ -93,5 +99,24 @@ describe("config", () => {
   it("ignores an invalid AGENTBLIP_PORT", () => {
     process.env.AGENTBLIP_PORT = "not-a-port";
     expect(loadConfig(file).port).toBe(DEFAULT_DAEMON_PORT);
+  });
+
+  it("applies AGENTBLIP_STATUS_POLICY, ignoring invalid values", () => {
+    process.env.AGENTBLIP_STATUS_POLICY = "overwrite";
+    expect(loadConfig(file).statusPolicy).toBe("overwrite");
+    process.env.AGENTBLIP_STATUS_POLICY = "clobber";
+    expect(loadConfig(file).statusPolicy).toBe("respect");
+  });
+
+  it("rejects an invalid statusPolicy in the file", () => {
+    fs.writeFileSync(file, JSON.stringify({ statusPolicy: "clobber" }));
+    expect(() => loadConfig(file)).toThrow(/statusPolicy/);
+  });
+
+  it("round-trips statusPolicy through save/load", () => {
+    const config = loadConfig(file);
+    config.statusPolicy = "overwrite";
+    saveConfig(config, file);
+    expect(loadConfig(file).statusPolicy).toBe("overwrite");
   });
 });

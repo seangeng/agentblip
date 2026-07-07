@@ -21,10 +21,61 @@ AUTH="authorization: Bearer $(cat ~/.local/state/agentblip/daemon.secret)"
 | Method & path | Body | Purpose |
 |---|---|---|
 | `POST /event` | session event (below) | Report a session event. `200` on accept, `400` on schema failure, `401` without the bearer secret |
-| `GET /state` | — | Current sessions and the formatted status, as JSON |
+| `GET /state` | — | Current sessions, the formatted status, and status ownership, as JSON |
 | `POST /pause` | — | Pause Slack updates (daemon keeps tracking) |
 | `POST /resume` | — | Resume Slack updates |
 | `GET /health` | — | Liveness probe (no auth) |
+
+### The `/state` response
+
+`GET /state` returns the daemon's full view, including an `ownership` block — the
+state of the [status-ownership machine](../packages/core/src/ownership.ts) that keeps
+agentblip from overwriting a Slack status it didn't set:
+
+```json
+{
+  "snapshot": {
+    "sessions": [
+      {
+        "key": "claude-code:abc123",
+        "source": "claude-code",
+        "sessionId": "abc123",
+        "state": "working",
+        "activity": "editing format.ts",
+        "startedAt": 1751830000000,
+        "updatedAt": 1751830042000
+      }
+    ],
+    "working": 1,
+    "waiting": 0,
+    "idle": 0,
+    "total": 1,
+    "latestActivity": "editing format.ts",
+    "signature": "…"
+  },
+  "formatted": {
+    "text": "claude agent working",
+    "emoji": ":robot_face:",
+    "expirationSec": 1751830342
+  },
+  "paused": false,
+  "ownership": {
+    "lastPushed": {
+      "text": "claude agent working",
+      "emoji": ":robot_face:",
+      "expirationSec": 1751830342
+    },
+    "savedPrior": null,
+    "backedOff": false
+  }
+}
+```
+
+| `ownership` field | Meaning |
+|---|---|
+| `lastPushed` | The status the daemon believes it last set; `null` = it set nothing (or cleared) |
+| `savedPrior` | A foreign status displaced under `statusPolicy: "overwrite"` — restored when sessions end |
+| `backedOff` | `true` while the daemon is standing down because a status it didn't set is up; it resumes when that status clears |
 
 ## The event schema
 

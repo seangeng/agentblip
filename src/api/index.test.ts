@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pairStartResponseSchema, type PairPollResponse } from "@agentblip/core";
+import {
+  pairStartResponseSchema,
+  statusReadResponseSchema,
+  type PairPollResponse,
+} from "@agentblip/core";
 import type { Env } from "../env";
 import { aesGcmDecrypt, aesGcmEncrypt, sha256hex } from "../lib/crypto";
 import {
@@ -151,7 +155,9 @@ describe("pair flow", () => {
       "https://slack.com/oauth/v2/authorize",
     );
     expect(authorizeUrl.searchParams.get("client_id")).toBe("client-id");
-    expect(authorizeUrl.searchParams.get("user_scope")).toBe("users.profile:write");
+    expect(authorizeUrl.searchParams.get("user_scope")).toBe(
+      "users.profile:write,users.profile:read",
+    );
     expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
       "https://agentblip.com/api/slack/callback",
     );
@@ -560,6 +566,200 @@ describe("POST /status", () => {
     const device = await getDeviceRecord(kv, tokenHash);
     expect(device?.lastSeenAt).toBeGreaterThan(stale);
     expect(ttls.get(`device:${tokenHash}`)).toBeUndefined(); // still permanent
+  });
+});
+
+describe("GET /slack/status", () => {
+  const get = (headers: Record<string, string> = {}) => ({ headers });
+  const profileResponder =
+    (profile: Record<string, unknown>) => (url: string) =>
+      url.includes("users.profile.get") ? { ok: true, profile } : { ok: true };
+
+  it("401s without a token, with a malformed token, and with an unknown token", async () => {
+    const env = makeEnv(createKv().kv);
+    const attempts: Record<string, string>[] = [
+      {},
+      { authorization: "Bearer wrong_prefix" },
+      { authorization: `Bearer ab_${"b".repeat(64)}` },
+    ];
+    for (const headers of attempts) {
+      const res = await api.request("/slack/status", get(headers), env);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "invalid_token" });
+    }
+    expect(fetchCalls).toHaveLength(0); // Slack never called
+  });
+
+  it("reads the current status with the decrypted xoxp token", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const { token } = await seedDevice(kv, "xoxp-live");
+
+    slackResponder = profileResponder({
+      status_text: "In a meeting",
+      status_emoji: ":calendar:",
+      status_expiration: 1_800_000_000,
+    });
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store"); // per-user data
+    expect(statusReadResponseSchema.parse(await res.json())).toEqual({
+      readable: true,
+      status: { text: "In a meeting", emoji: ":calendar:", expirationSec: 1_800_000_000 },
+    });
+
+    const call = fetchCalls.find((f) => f.url.includes("users.profile.get"));
+    expect(call).toBeDefined();
+    expect(call?.init.method).toBe("GET");
+    expect(new Headers(call?.init.headers).get("authorization")).toBe("Bearer xoxp-live");
+  });
+
+  it("maps an empty profile status to status: null", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const { token } = await seedDevice(kv);
+
+    slackResponder = profileResponder({
+      status_text: "",
+      status_emoji: "",
+      status_expiration: 0,
+    });
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(statusReadResponseSchema.parse(await res.json())).toEqual({
+      readable: true,
+      status: null,
+    });
+  });
+
+  it("defaults a missing status_expiration to 0", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const { token } = await seedDevice(kv);
+
+    slackResponder = profileResponder({ status_text: "afk", status_emoji: ":zzz:" });
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(statusReadResponseSchema.parse(await res.json())).toEqual({
+      readable: true,
+      status: { text: "afk", emoji: ":zzz:", expirationSec: 0 },
+    });
+  });
+
+  it("degrades to readable: false when the token lacks users.profile:read", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const { token, tokenHash } = await seedDevice(kv);
+
+    slackResponder = () => ({ ok: false, error: "missing_scope" });
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(statusReadResponseSchema.parse(await res.json())).toEqual({
+      readable: false,
+      status: null,
+    });
+    // missing_scope is a healthy legacy token, not a dead one
+    expect(await getDeviceRecord(kv, tokenHash)).not.toBeNull();
+  });
+
+  it("deletes the device and 401s slack_revoked when Slack reports a dead token", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const { token, tokenHash } = await seedDevice(kv);
+
+    slackResponder = () => ({ ok: false, error: "invalid_auth" });
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "slack_revoked" });
+    expect(await getDeviceRecord(kv, tokenHash)).toBeNull();
+  });
+
+  it("maps transient Slack failures to 502 slack_error", async () => {
+    const { kv } = createKv();
+    const env = makeEnv(kv);
+    const { token, tokenHash } = await seedDevice(kv);
+
+    slackResponder = () => ({ ok: false, error: "fatal_error" });
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "slack_error", detail: "fatal_error" });
+    expect(await getDeviceRecord(kv, tokenHash)).not.toBeNull(); // transient ≠ revoked
+  });
+
+  it("rate-limits at 30/min per device on its own scope", async () => {
+    const { kv, data } = createKv();
+    const env = makeEnv(kv);
+    const { token, tokenHash } = await seedDevice(kv);
+
+    // seed the read counter at the limit (both adjacent buckets to dodge minute rollover)
+    const bucket = Math.floor(Date.now() / 60_000);
+    data.set(`rl:statusread:${tokenHash}:${bucket}`, "30");
+    data.set(`rl:statusread:${tokenHash}:${bucket + 1}`, "30");
+
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(429);
+    expect(fetchCalls).toHaveLength(0);
+
+    // the write scope has its own budget — POST /status is unaffected
+    const status = { text: "claude agent working", emoji: ":robot_face:", expirationSec: 0 };
+    const write = await api.request(
+      "/status",
+      jsonInit({ status }, { authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(write.status).toBe(200);
+  });
+
+  it("promotes a provisional device record to permanent on first authenticated use", async () => {
+    const { kv, ttls } = createKv();
+    const env = makeEnv(kv);
+    const { token, tokenHash } = await seedDevice(
+      kv,
+      "xoxp-live",
+      { provisional: true },
+      DEVICE_PROVISIONAL_TTL_SEC,
+    );
+    expect(ttls.get(`device:${tokenHash}`)).toBe(DEVICE_PROVISIONAL_TTL_SEC);
+
+    slackResponder = profileResponder({ status_text: "", status_emoji: "" });
+    const res = await api.request(
+      "/slack/status",
+      get({ authorization: `Bearer ${token}` }),
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    const device = await getDeviceRecord(kv, tokenHash);
+    expect(device?.provisional).toBeUndefined();
+    expect(JSON.stringify(device)).not.toContain("provisional");
+    expect(ttls.get(`device:${tokenHash}`)).toBeUndefined(); // re-put without TTL
   });
 });
 

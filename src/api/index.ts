@@ -1,10 +1,12 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import {
   DEVICE_TOKEN_PREFIX,
   pairPollRequestSchema,
   statusUpdateRequestSchema,
   type PairPollResponse,
   type PairStartResponse,
+  type StatusReadResponse,
 } from "@agentblip/core";
 import type { Env } from "../env";
 import {
@@ -33,7 +35,7 @@ import {
   type KVStore,
 } from "../lib/kv";
 import { rateLimit } from "../lib/ratelimit";
-import { oauthExchange, setStatus } from "../lib/slack";
+import { getStatus, oauthExchange, setStatus } from "../lib/slack";
 
 const PAIR_START_LIMIT_PER_MIN = 5;
 const STATUS_LIMIT_PER_MIN = 30;
@@ -64,6 +66,37 @@ async function authDevice(
   const tokenHash = await sha256hex(token);
   const device = await getDeviceRecord(store, tokenHash);
   return device ? { tokenHash, device } : null;
+}
+
+/**
+ * First authenticated use promotes a provisional record to permanent (re-put
+ * without TTL or flag); afterwards lastSeenAt is refreshed at most hourly.
+ */
+async function promoteAndTouchDevice(
+  store: KVStore,
+  tokenHash: string,
+  device: DeviceRecord,
+): Promise<void> {
+  const now = Date.now();
+  if (device.provisional || now - device.lastSeenAt >= LAST_SEEN_REFRESH_MS) {
+    const permanent: DeviceRecord = { ...device, lastSeenAt: now };
+    delete permanent.provisional;
+    await putDeviceRecord(store, tokenHash, permanent);
+  }
+}
+
+/** Map a failed Slack call to a response; a permanently dead token deletes the device. */
+async function slackFailureResponse(
+  c: Context<{ Bindings: Env }>,
+  tokenHash: string,
+  error: string,
+): Promise<Response> {
+  if (SLACK_REVOKED_ERRORS.has(error)) {
+    await deleteDeviceRecord(c.env.STORE, tokenHash);
+    return c.json({ error: "slack_revoked" }, 401);
+  }
+  if (error === "ratelimited") return c.json({ error: "ratelimited" }, 429);
+  return c.json({ error: "slack_error", detail: error }, 502);
 }
 
 export const api = new Hono<{ Bindings: Env }>();
@@ -173,7 +206,7 @@ api.get("/slack/install", async (c) => {
 
   const authorize = new URL("https://slack.com/oauth/v2/authorize");
   authorize.searchParams.set("client_id", c.env.SLACK_CLIENT_ID);
-  authorize.searchParams.set("user_scope", "users.profile:write");
+  authorize.searchParams.set("user_scope", "users.profile:write,users.profile:read");
   authorize.searchParams.set("redirect_uri", `${c.env.BASE_URL}/api/slack/callback`);
   authorize.searchParams.set("state", nonce);
   return c.redirect(authorize.toString());
@@ -229,6 +262,35 @@ api.get("/slack/callback", async (c) => {
   return c.redirect(`/pair?done=1&team=${encodeURIComponent(exchange.teamName)}`);
 });
 
+// Registered after the /slack/* no-store middleware — status reads are
+// per-user data and must never be cached either.
+api.get("/slack/status", async (c) => {
+  const auth = await authDevice(c.env.STORE, c.req.header("authorization"));
+  if (!auth) return c.json({ error: "invalid_token" }, 401);
+  const { tokenHash, device } = auth;
+
+  // Separate scope from POST /status: a daemon read-before-push cycle
+  // shouldn't halve its effective push budget.
+  const allowed = await rateLimit(c.env.STORE, "statusread", tokenHash, STATUS_LIMIT_PER_MIN);
+  if (!allowed) return c.json({ error: "rate_limited" }, 429);
+
+  let xoxp: string;
+  try {
+    xoxp = await aesGcmDecrypt(device.encToken, c.env.TOKEN_ENCRYPTION_KEY);
+  } catch {
+    return c.json({ error: "internal" }, 500);
+  }
+
+  const result = await getStatus(xoxp);
+  if (!result.ok) return slackFailureResponse(c, tokenHash, result.error);
+
+  await promoteAndTouchDevice(c.env.STORE, tokenHash, device);
+  const res: StatusReadResponse = result.readable
+    ? { readable: true, status: result.status }
+    : { readable: false, status: null };
+  return c.json(res);
+});
+
 api.post("/status", async (c) => {
   const auth = await authDevice(c.env.STORE, c.req.header("authorization"));
   if (!auth) return c.json({ error: "invalid_token" }, 401);
@@ -254,23 +316,9 @@ api.post("/status", async (c) => {
   }
 
   const result = await setStatus(xoxp, parsed.data.status);
-  if (!result.ok) {
-    if (SLACK_REVOKED_ERRORS.has(result.error)) {
-      await deleteDeviceRecord(c.env.STORE, tokenHash);
-      return c.json({ error: "slack_revoked" }, 401);
-    }
-    if (result.error === "ratelimited") return c.json({ error: "ratelimited" }, 429);
-    return c.json({ error: "slack_error", detail: result.error }, 502);
-  }
+  if (!result.ok) return slackFailureResponse(c, tokenHash, result.error);
 
-  const now = Date.now();
-  // First authenticated use promotes a provisional record to permanent (re-put
-  // without TTL or flag); afterwards lastSeenAt is refreshed at most hourly.
-  if (device.provisional || now - device.lastSeenAt >= LAST_SEEN_REFRESH_MS) {
-    const permanent: DeviceRecord = { ...device, lastSeenAt: now };
-    delete permanent.provisional;
-    await putDeviceRecord(c.env.STORE, tokenHash, permanent);
-  }
+  await promoteAndTouchDevice(c.env.STORE, tokenHash, device);
   return c.json({ ok: true });
 });
 

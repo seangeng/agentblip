@@ -78,8 +78,9 @@ Any tool (curl) ───┼─────────────────�
 - `GET  /api/health` — public health check
 - `POST /api/pair/start` — CLI begins pairing → `{code, deviceId, pollSecret, verifyUrl}` (IP rate-limited)
 - `POST /api/pair/poll` — CLI polls → `{status, deviceToken?}` (token plaintext returned once)
-- `GET  /api/slack/install?code=` — redirects to Slack OAuth (user_scope: `users.profile:write`)
+- `GET  /api/slack/install?code=` — redirects to Slack OAuth (user_scope: `users.profile:write,users.profile:read`)
 - `GET  /api/slack/callback` — OAuth exchange, links Slack user to pending pairing
+- `GET  /api/slack/status` — `Bearer ab_…` device token; returns `{readable, status}` (`statusReadResponseSchema`) — current Slack status, read transiently for the daemon's ownership decision; `readable:false` = token predates the read scope (legacy blind pushes)
 - `POST /api/status` — `Bearer ab_…` device token; body `{status: SlackStatus | null}`; null clears
 - `POST /api/unlink` — revoke device, clear status
 
@@ -109,6 +110,7 @@ Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worke
 | 2026-07-06 | Daemon port 4519 | Unassigned range, no common collisions |
 | 2026-07-06 | Daemon loopback API requires an auto-generated bearer secret (`~/.local/state/agentblip/daemon.secret`, 0600) on `/event` `/state` `/pause` `/resume`; `/health` open | localhost isn't a trust boundary — blocks other local users and browser-based (DNS-rebinding) event injection |
 | 2026-07-06 | Pairing handover: plaintext device token only in the pair record (≤15 min, single-use + 60s delivered-grace); device records provisional (24h TTL) until first authenticated use | Keeps privacy claims strictly true; abandoned pairings self-clean |
+| 2026-07-06 | Status ownership protocol: new `users.profile:read` user scope; daemon reads current status before each push, core `planStatusUpdate()` (packages/core/src/ownership.ts) decides push/restore/clear/skip; `statusPolicy: "respect"` (default) never overwrites a foreign status and resumes when it clears, `"overwrite"` saves the displaced status and restores it on clear; a manual mid-session change always wins; tokens without the read scope degrade to legacy blind pushes (`readable:false`) | agentblip must never clobber a status it didn't set; the status field is shared with the human and other apps |
 
 ## Cloudflare Resources
 

@@ -28,6 +28,8 @@ export const configSchema = z.object({
   slackToken: z.string().optional(),
   port: z.number().int().min(1).max(65535).default(DEFAULT_DAEMON_PORT),
   granularity: z.enum(["off", "presence", "count", "activity"]).default("count"),
+  /** How to treat a Slack status agentblip didn't set (ownership guard). */
+  statusPolicy: z.enum(["respect", "overwrite"]).default("respect"),
   showProject: z.boolean().default(false),
   statusTtlSec: z.number().int().nonnegative().default(DEFAULT_STATUS_TTL_SEC),
   debounceMs: z.number().int().nonnegative().default(DEFAULT_DEBOUNCE_MS),
@@ -101,6 +103,8 @@ function applyEnvOverrides(config: Config): Config {
     const n = Number.parseInt(port, 10);
     if (Number.isInteger(n) && n >= 1 && n <= 65535) config.port = n;
   }
+  const policy = process.env.AGENTBLIP_STATUS_POLICY;
+  if (policy === "respect" || policy === "overwrite") config.statusPolicy = policy;
   return config;
 }
 

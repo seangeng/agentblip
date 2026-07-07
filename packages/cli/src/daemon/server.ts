@@ -2,6 +2,7 @@ import http from "node:http";
 import { sessionEventSchema } from "@agentblip/core";
 import type { SessionEvent, SlackStatus, StatusSnapshot } from "@agentblip/core";
 import { secretsEqual } from "../lib/daemon-auth";
+import type { OwnershipSummary } from "./pusher";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -16,6 +17,8 @@ export interface DaemonServerDeps {
     lastError?: string;
   };
   getLastError(): string | undefined;
+  /** Ownership guard summary — included in /state and /health. */
+  getOwnership(): OwnershipSummary;
   pause(): Promise<void>;
   resume(): void;
 }
@@ -66,6 +69,7 @@ export function createDaemonServer(deps: DaemonServerDeps): http.Server {
           pid: process.pid,
           uptimeSec: Math.round((Date.now() - startedAt) / 1000),
           lastError: deps.getLastError(),
+          ownership: deps.getOwnership(),
         });
         return;
       }
@@ -97,7 +101,7 @@ export function createDaemonServer(deps: DaemonServerDeps): http.Server {
         return;
       }
       if (method === "GET" && url === "/state") {
-        json(res, 200, deps.getState());
+        json(res, 200, { ...deps.getState(), ownership: deps.getOwnership() });
         return;
       }
       if (method === "POST" && url === "/pause") {

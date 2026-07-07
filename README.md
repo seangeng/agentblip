@@ -90,6 +90,11 @@ plain JSON:
   // Project is usually the basename of the session's cwd.
   "showProject": false,
 
+  // What to do when a status agentblip didn't set is already up:
+  // "respect" (default) — never overwrite it; stand down until it clears.
+  // "overwrite" — displace it once, remember it, restore it when sessions end.
+  "statusPolicy": "respect",
+
   // Rolling expiration in seconds — Slack auto-clears the status if the daemon
   // stops refreshing it (sleep, crash, dead wifi). 0 = never expire.
   "statusTtlSec": 300,
@@ -129,6 +134,34 @@ plain JSON:
 Status text is truncated to Slack's 100-character cap. `{agent}` is a friendly display
 name (`claude-code` → `claude`, `codex` → `codex`, `gemini-cli` → `gemini`); unknown
 sources display as-is.
+
+## Plays nice with your status
+
+Your status field isn't only agentblip's. Before every push the daemon reads your
+current Slack status (via the relay in relay mode, or straight from Slack in direct
+mode — that's the `users.profile:read` scope) and decides what it's allowed to do:
+
+- **`statusPolicy: "respect"` (default).** A status agentblip didn't set — one you
+  typed yourself, or another app's — is never overwritten. The daemon stands down
+  (`agentblip status` shows it backing off) and resumes automatically the moment that
+  status clears or expires.
+- **`statusPolicy: "overwrite"`.** agentblip displaces the existing status, remembers
+  it, and puts it back when your sessions end.
+- **A manual change mid-session always wins**, under either policy. If your status
+  changes out from under agentblip while it's active, that's you (or another app)
+  speaking deliberately: the daemon backs off, treats the new status as the truth, and
+  drops anything it had saved.
+
+Honest edge cases: if the daemon dies mid-session, your status simply expires blank
+after the rolling TTL (no stale "working" lies) — and a status agentblip had displaced
+under `"overwrite"` is restored the next time the daemon starts, unless it carried its
+own expiration that has since passed. If your Slack token predates the read scope,
+agentblip can't see the current status and falls back to its old blind-push behavior;
+re-authorize to get the new one:
+
+```bash
+agentblip unlink && agentblip setup
+```
 
 ## Integrations
 
