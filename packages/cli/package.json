@@ -1,6 +1,6 @@
 {
   "name": "agentblip",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Your Slack status, synced with your local AI agent sessions — Claude Code, Codex, or any custom agent.",
   "type": "module",
   "license": "MIT",

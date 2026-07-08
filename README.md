@@ -219,6 +219,29 @@ Each hook pipes its JSON to `agentblip hook claude-code`, which forwards a norma
 event to the daemon. Multiple concurrent sessions just work — each is tracked by its
 session id.
 
+> **Subagents & workflows.** Hooks fire per session, so a single Claude Code session
+> that fans out into subagents (the `Task` tool) or an ultracode `Workflow` shows as
+> *one* working agent, not N — Claude Code exposes no hook for the subagent count. To
+> make "N agents working" reflect the real fleet, have the orchestrator report it (see
+> [Report a fan-out](#report-a-fan-out) below).
+
+### Report a fan-out
+
+When a session spawns many concurrent agents (an ultracode workflow, a CI matrix, a
+batch job), let it self-report so the count is honest. `agentblip report` sets an
+`agents` count and an optional `phase`, and `--done` clears it:
+
+```bash
+agentblip report --agents 5 --phase "verify" --activity "reviewing findings"
+# → Slack: 🤖 5 agents · reviewing findings · verify
+agentblip report --done      # fleet finished
+```
+
+The count sums with your real sessions (5 reported agents + 1 live Claude Code session
+= "6 agents working"), and it auto-clears if the reporter goes quiet, so a crashed job
+won't leave a stale "5 agents" lie. Any orchestrator that can run a shell command can
+call it — a Makefile target, a CI step, or an agent step inside a workflow.
+
 ### Codex — notify + watcher
 
 `agentblip setup` adds a `notify` hook to your Codex config (`agentblip hook codex` is
@@ -260,6 +283,7 @@ schema, event semantics, staleness rules, and adapter-writing guide:
 | `agentblip stop` | Stop the background daemon |
 | `agentblip status [--json]` | Show daemon state, live sessions, and the current status |
 | `agentblip emit` | Send a session event by hand (testing, scripts) |
+| `agentblip report` | Report a fan-out of concurrent agents (`--agents N --phase X`, `--done`) so "N agents working" is accurate |
 | `agentblip hook <source>` | stdin→event adapter wired into agent hooks (e.g. `agentblip hook claude-code`) |
 | `agentblip pause` | Pause Slack updates without stopping the daemon |
 | `agentblip resume` | Resume Slack updates |

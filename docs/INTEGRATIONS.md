@@ -85,7 +85,15 @@ agentblip from overwriting a Slack status it didn't set:
 | `kind` | enum | yes | `start` \| `working` \| `waiting` \| `idle` \| `heartbeat` \| `end` |
 | `activity` | string, ≤200 chars | no | Short label of what's happening, e.g. `"editing format.ts"` |
 | `project` | string, ≤120 chars | no | Usually the basename of the session's cwd |
+| `agents` | int, 1–999 | no | How many concurrent agents this one session represents (default 1). Orchestrators set it so `agentCount` = total agents, not sessions |
+| `phase` | string, ≤60 chars | no | Orchestrator phase label, e.g. `"verify"` or `"2/4"`; appended to the status |
 | `ts` | positive int | no | Epoch **milliseconds**; defaults to receipt time |
+
+`GET /state`'s snapshot reports both `working` (number of working *sessions*) and
+`agentCount` (sum of each working session's `agents`). "N agents working" uses
+`agentCount`, so one session that reports `agents: 5` shows as five. The
+[`agentblip report`](#) command is the friendly wrapper for this — see the README's
+"Report a fan-out" section.
 
 Well-known sources get friendly display names in status text (`claude-code` →
 `claude`, `codex`, `gemini-cli` → `gemini`, `cursor`, `opencode`); anything else
@@ -106,7 +114,9 @@ Details worth knowing:
 
 - **Activity is sticky while working.** A `working` event without an `activity`
   keeps the previous label — tool chatter often arrives label-less between richer
-  events. `project` is sticky the same way.
+  events. `project`, `agents`, and `phase` are sticky the same way, so a bare
+  heartbeat won't wipe an orchestrator's reported fan-out. All of them reset when
+  the session is demoted to idle.
 - **Out-of-order events are dropped.** An event whose `ts` is older than the
   session's last event is ignored.
 - **Only working sessions surface an activity.** The status shows the most recently
