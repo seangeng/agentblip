@@ -54,8 +54,18 @@ export const configSchema = z.object({
           sessionsDir: z.string().optional(),
         })
         .default({ enabled: true }),
+      workflow: z
+        .object({
+          enabled: z.boolean().default(true),
+          projectsDir: z.string().optional(),
+        })
+        .default({ enabled: true }),
     })
-    .default({ claudeCode: { enabled: true }, codex: { enabled: true } }),
+    .default({
+      claudeCode: { enabled: true },
+      codex: { enabled: true },
+      workflow: { enabled: true },
+    }),
   autoStartDaemon: z.boolean().default(true),
 });
 

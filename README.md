@@ -154,11 +154,14 @@ plain JSON:
   // start is cooled down for 60s so a broken config can't respawn on every hook).
   "autoStartDaemon": true,
 
-  // Which source adapters the daemon activates. Codex also takes an optional
-  // sessionsDir override (defaults to ~/.codex/sessions).
+  // Which source adapters the daemon activates. Codex takes an optional
+  // sessionsDir (defaults to ~/.codex/sessions); workflow watches Claude Code's
+  // workflow journals for live agent counts (projectsDir defaults to
+  // ~/.claude/projects).
   "adapters": {
     "claudeCode": { "enabled": true },
-    "codex": { "enabled": true }
+    "codex": { "enabled": true },
+    "workflow": { "enabled": true }
   }
 }
 ```
@@ -219,11 +222,13 @@ Each hook pipes its JSON to `agentblip hook claude-code`, which forwards a norma
 event to the daemon. Multiple concurrent sessions just work — each is tracked by its
 session id.
 
-> **Subagents & workflows.** Hooks fire per session, so a single Claude Code session
-> that fans out into subagents (the `Task` tool) or an ultracode `Workflow` shows as
-> *one* working agent, not N — Claude Code exposes no hook for the subagent count. To
-> make "N agents working" reflect the real fleet, have the orchestrator report it (see
-> [Report a fan-out](#report-a-fan-out) below).
+> **Subagents & workflows — automatic.** Hooks fire per session, so Claude Code can't
+> tell agentblip how many subagents a session fanned out into. For ultracode
+> `Workflow` runs, agentblip watches Claude Code's local workflow journals and reports
+> the live agent count itself — a 5-agent workflow shows `🤖 5 agents · running a
+> workflow` with no setup, and clears when it finishes. (Toggle: `adapters.workflow` in
+> the config.) For other fan-outs — a `Task`-tool session, a CI matrix, a batch job —
+> report it explicitly (see [Report a fan-out](#report-a-fan-out) below).
 
 ### Report a fan-out
 
@@ -241,6 +246,9 @@ The count sums with your real sessions (5 reported agents + 1 live Claude Code s
 = "6 agents working"), and it auto-clears if the reporter goes quiet, so a crashed job
 won't leave a stale "5 agents" lie. Any orchestrator that can run a shell command can
 call it — a Makefile target, a CI step, or an agent step inside a workflow.
+
+(Ultracode `Workflow` runs don't need this — the built-in workflow watcher already
+reports them automatically.)
 
 ### Codex — notify + watcher
 

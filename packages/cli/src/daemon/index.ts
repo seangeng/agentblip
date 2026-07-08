@@ -3,6 +3,8 @@ import { SessionStore, formatStatus } from "@agentblip/core";
 import type { SessionEvent } from "@agentblip/core";
 import { codexSessionsDir, createCodexWatcher } from "../adapters/codex";
 import type { CodexWatcher } from "../adapters/codex";
+import { claudeProjectsDir, createWorkflowWatcher } from "../adapters/workflow";
+import type { WorkflowWatcher } from "../adapters/workflow";
 import { formatOptionsFromConfig, safeConfig, saveConfig } from "../lib/config";
 import type { Config } from "../lib/config";
 import { createDaemonSecret } from "../lib/daemon-auth";
@@ -115,6 +117,13 @@ export async function runDaemon(config: Config): Promise<void> {
       log(`watching codex sessions in ${sessionsDir}`);
     }
 
+    let wfWatcher: WorkflowWatcher | undefined;
+    const projectsDir = config.adapters.workflow.projectsDir ?? claudeProjectsDir();
+    if (config.adapters.workflow.enabled && fs.existsSync(projectsDir)) {
+      wfWatcher = createWorkflowWatcher(projectsDir, applyEvent, log);
+      log(`watching Claude Code workflows in ${projectsDir}`);
+    }
+
     log(
       `agentblip daemon listening on 127.0.0.1:${config.port} (sink: ${sink.name}, granularity: ${config.granularity}, statusPolicy: ${config.statusPolicy})`,
     );
@@ -128,6 +137,7 @@ export async function runDaemon(config: Config): Promise<void> {
         server.close();
         try {
           await watcher?.close();
+          await wfWatcher?.close();
         } catch {
           // best effort
         }

@@ -197,6 +197,18 @@ and `agentblip hook <source>` adapts hook JSON on stdin into events.
    Slack status at `activity` granularity. Users can also scrub patterns client-side
    via `redactPatterns`, but the best redaction is the string you never sent.
 
-The Claude Code and Codex adapters in
+The Claude Code, Codex, and workflow adapters in
 [`packages/cli/src/adapters/`](../packages/cli/src/adapters/) are the reference
 implementations.
+
+## Workflow watcher (ultracode fan-out)
+
+Claude Code fires hooks per session, so a single session that fans out into an
+ultracode `Workflow` can't tell agentblip how many agents are running. The daemon's
+`workflow` adapter fills that gap: it polls Claude Code's per-workflow journals
+(`~/.claude/projects/**/subagents/workflows/*/journal.jsonl`), where each agent writes
+a `started` line on spawn and a `result` line on finish. Live agents = `started −
+result`. Each workflow is reported as a `workflow:<runId>` session with that `agents`
+count, and cleared when it drains. No hooks, no setup — it just works while the daemon
+runs. It depends on Claude Code's internal layout, so it degrades to a no-op if the
+directory or format isn't what it expects. Toggle via `adapters.workflow.enabled`.

@@ -68,7 +68,7 @@ Any tool (curl) ───┼─────────────────�
 │   └── cli/                   # `agentblip` npm CLI (daemon + adapters + sinks)
 │       └── src/
 │           ├── commands/      # setup, start, status, emit, hook, pause, unlink, doctor
-│           ├── adapters/      # claude-code (hooks), codex (notify+watcher)
+│           ├── adapters/      # claude-code (hooks), codex (notify+watcher), workflow (ultracode journal watcher)
 │           └── sinks/         # relay, slack-direct, console
 ├── apps/
 │   └── menubar/               # native SwiftUI macOS menu bar app (thin daemon client)
@@ -115,6 +115,7 @@ Wire contracts: `packages/core/src/events.ts` (zod schemas, shared CLI ↔ Worke
 | 2026-07-06 | Hook/adapter events → tiny localhost HTTP API | One integration surface; Claude Code hooks, Codex, and any custom tool all speak the same `POST /event` |
 | 2026-07-07 | macOS menu bar app is a thin native SwiftUI client of the daemon's loopback API (apps/menubar), NOT a reimplementation | Preserves DRY — all logic stays in core/daemon; app is presentation+control only. SwiftPM executable + make-app.sh bundle (no Xcode/pbxproj), so it builds from CLI. Needed a live `GET`/`POST /config` on the daemon so the app retunes settings without a restart |
 | 2026-07-08 | Fan-out reporting: a session carries an `agents` count + `phase`; `StatusSnapshot.agentCount` = Σ agents over working sessions is what "N agents working" shows. `agentblip report` is the orchestrator wrapper | Claude Code hooks fire per session and expose no subagent/workflow count (verified live: a 10-agent workflow folds into one session). Self-reporting is the only way to make the "N agents working" headline true for ultracode/CI fan-out. Plain sessions unchanged (agentCount == working) |
+| 2026-07-08 | Workflow watcher adapter (packages/cli/src/adapters/workflow.ts) polls Claude Code's `~/.claude/projects/**/subagents/workflows/*/journal.jsonl` (started − result = live agents) and auto-reports each ultracode workflow as a `workflow:<runId>` session | Ships in the CLI so *every* user gets accurate "N agents working" for ultracode with zero setup — the only automatic route, since agentblip can't change the Workflow tool itself. Poll-based (bounded cost over the deep tree), pure `stepWorkflows`/`liveAgentCount` for testability, degrades to no-op on missing dir/format. Verified live: 5-agent workflow → "5 agents · running a workflow" → drained → cleared |
 | 2026-07-06 | npm workspaces (core, cli) + root Worker app | Matches newest house projects (littledemo, motioness); core stays source-only, bundled by consumers |
 | 2026-07-06 | RR7 SSR framework mode | Current house standard (extractvibe, stackhooks, ogrender) |
 | 2026-07-06 | Static OG image v1 (no satori) | One marketing page; not worth the wasm weight yet |
