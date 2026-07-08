@@ -42,32 +42,58 @@ export function liveAgentCount(journalText: string): number {
   return Math.max(0, started - result);
 }
 
-/** Targeted walk of the known layout — never a blind recursive watch. */
-export function findActiveJournals(
-  projectsDir: string,
-  nowMs: number,
-): Array<{ wfId: string; file: string }> {
-  const out: Array<{ wfId: string; file: string }> = [];
-  const readDir = (p: string): string[] => {
+export interface JournalRef {
+  wfId: string;
+  file: string;
+  /** Session key of the Claude Code session that launched this workflow. */
+  orchestrator: string;
+}
+
+/** Targeted walk of the known layout — only descends real directories. */
+export function findActiveJournals(projectsDir: string, nowMs: number): JournalRef[] {
+  const out: JournalRef[] = [];
+  const subDirs = (p: string): string[] => {
     try {
-      return fs.readdirSync(p);
+      return fs
+        .readdirSync(p, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
     } catch {
       return [];
     }
   };
-  for (const proj of readDir(projectsDir)) {
-    const sessionsBase = path.join(projectsDir, proj);
-    for (const sess of readDir(sessionsBase)) {
-      const wfBase = path.join(sessionsBase, sess, "subagents", "workflows");
-      for (const wf of readDir(wfBase)) {
-        const file = path.join(wfBase, wf, "journal.jsonl");
+  for (const slug of subDirs(projectsDir)) {
+    const slugPath = path.join(projectsDir, slug);
+    for (const session of subDirs(slugPath)) {
+      const wfBase = path.join(slugPath, session, "subagents", "workflows");
+      for (const wf of subDirs(wfBase)) {
+        const wfDir = path.join(wfBase, wf);
+        // Liveness = the freshest file in the wf dir. journal.jsonl only gets a
+        // line on agent spawn/finish, but agent-*.jsonl are written continuously
+        // while an agent runs — so a long, quiet phase stays "live" and a
+        // crashed workflow (all files stale) correctly drops out.
+        let freshest = 0;
+        let hasJournal = false;
         try {
-          const stat = fs.statSync(file);
-          if (stat.isFile() && nowMs - stat.mtimeMs <= ACTIVE_MTIME_MS) {
-            out.push({ wfId: wf, file });
+          for (const ent of fs.readdirSync(wfDir, { withFileTypes: true })) {
+            if (!ent.isFile()) continue;
+            if (ent.name === "journal.jsonl") hasJournal = true;
+            try {
+              const m = fs.statSync(path.join(wfDir, ent.name)).mtimeMs;
+              if (m > freshest) freshest = m;
+            } catch {
+              // file vanished mid-scan
+            }
           }
         } catch {
-          // no journal yet in this wf dir
+          continue;
+        }
+        if (hasJournal && nowMs - freshest <= ACTIVE_MTIME_MS) {
+          out.push({
+            wfId: wf,
+            file: path.join(wfDir, "journal.jsonl"),
+            orchestrator: `claude-code:${session}`,
+          });
         }
       }
     }
@@ -87,13 +113,17 @@ export interface WfState {
  */
 export function stepWorkflows(
   active: Map<string, WfState>,
-  journals: Array<{ wfId: string; count: number }>,
+  journals: Array<{ wfId: string; count: number; orchestrator?: string }>,
   nowMs: number,
 ): SessionEvent[] {
   const events: SessionEvent[] = [];
   const seen = new Set<string>();
 
-  for (const { wfId, count } of journals) {
+  for (const { wfId, count, orchestrator } of journals) {
+    // A drained (started === result) or never-live journal we aren't already
+    // tracking is a finished workflow still inside the scan window — ignore it,
+    // don't adopt-then-end it every tick.
+    if (count === 0 && !active.has(wfId)) continue;
     seen.add(wfId);
     const st = active.get(wfId) ?? { agents: 0 };
     if (count > 0) {
@@ -109,6 +139,7 @@ export function stepWorkflows(
               kind: "working",
               agents: count,
               activity: "running a workflow",
+              orchestrator,
               ts: nowMs,
             },
       );
@@ -154,13 +185,16 @@ export function createWorkflowWatcher(
 
   const tick = (): void => {
     try {
-      const journals = findActiveJournals(projectsDir, now()).map(({ wfId, file }) => {
+      const journals: Array<{ wfId: string; count: number; orchestrator: string }> = [];
+      for (const { wfId, file, orchestrator } of findActiveJournals(projectsDir, now())) {
+        let count: number;
         try {
-          return { wfId, count: liveAgentCount(fs.readFileSync(file, "utf8")) };
+          count = liveAgentCount(fs.readFileSync(file, "utf8"));
         } catch {
-          return { wfId, count: 0 };
+          continue; // read failed this tick — omit it, don't fabricate count 0
         }
-      });
+        journals.push({ wfId, count, orchestrator });
+      }
       for (const event of stepWorkflows(active, journals, now())) onEvent(event);
     } catch (err) {
       log(`workflow watcher error: ${err instanceof Error ? err.message : String(err)}`);

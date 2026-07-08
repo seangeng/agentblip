@@ -79,6 +79,7 @@ export class SessionStore {
       // doesn't wipe an orchestrator's reported fan-out.
       agents: event.agents ?? existing?.agents ?? 1,
       phase: event.phase ?? (nextState === "working" ? existing?.phase : undefined),
+      orchestrator: event.orchestrator ?? existing?.orchestrator,
       startedAt: existing?.startedAt ?? ts,
       updatedAt: ts,
     });
@@ -113,7 +114,16 @@ export class SessionStore {
     const working = workingSessions.length;
     const waiting = sessions.filter((s) => s.state === "waiting").length;
     const idle = sessions.filter((s) => s.state === "idle").length;
-    const agentCount = workingSessions.reduce((n, s) => n + (s.agents || 1), 0);
+    // A working session named as another session's `orchestrator` has its own
+    // work already represented by that other session's fleet — don't count it
+    // twice (e.g. the Claude Code session that launched a workflow).
+    const subsumed = new Set(
+      workingSessions.map((s) => s.orchestrator).filter((k): k is string => !!k),
+    );
+    const agentCount = workingSessions.reduce(
+      (n, s) => n + (subsumed.has(s.key) ? 0 : s.agents || 1),
+      0,
+    );
     // activity and phase are looked up independently — an orchestrator may
     // report a phase with no fine-grained activity, and vice versa.
     const latestActivity = workingSessions.find((s) => s.activity)?.activity;

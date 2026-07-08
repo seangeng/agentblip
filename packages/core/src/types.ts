@@ -11,6 +11,8 @@ export interface AgentSession {
   agents: number;
   /** Orchestrator phase label, if any. */
   phase?: string;
+  /** Parent session key whose own count this session subsumes (avoids double-count). */
+  orchestrator?: string;
   startedAt: number; // epoch ms
   updatedAt: number; // epoch ms of last event
 }

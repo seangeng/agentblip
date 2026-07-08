@@ -148,6 +148,30 @@ describe("formatStatus", () => {
     expect(formatStatus(store.snapshot(), {}, NOW)?.text).toBe("6 agents working");
   });
 
+  it("does not double-count the orchestrator: parent + its workflow fleet = N, not N+1", () => {
+    const store = new SessionStore();
+    // the Claude Code session that launched the workflow (agents default 1)
+    store.apply({ source: "claude-code", sessionId: "sess1", kind: "working", activity: "orchestrating a workflow" }, NOW);
+    // the workflow fleet, pointing back at that session so it isn't double-counted
+    store.apply(
+      { source: "workflow", sessionId: "wf1", kind: "working", agents: 5, orchestrator: "claude-code:sess1" },
+      NOW + 1,
+    );
+    const snap = store.snapshot();
+    expect(snap.working).toBe(2); // two sessions in the store…
+    expect(snap.agentCount).toBe(5); // …but the parent is subsumed → 5, not 6
+    expect(formatStatus(snap, {}, NOW)?.text).toBe("5 agents working");
+  });
+
+  it("ignores an orchestrator reference when the parent session isn't present", () => {
+    const store = new SessionStore();
+    store.apply(
+      { source: "workflow", sessionId: "wf1", kind: "working", agents: 5, orchestrator: "claude-code:gone" },
+      NOW,
+    );
+    expect(store.snapshot().agentCount).toBe(5); // nothing to subtract
+  });
+
   it("appends the phase label when an orchestrator reports one", () => {
     const store = new SessionStore();
     store.apply(

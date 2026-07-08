@@ -36,6 +36,13 @@ export const sessionEventSchema = z.object({
   agents: z.number().int().min(1).max(999).optional(),
   /** Optional phase label from an orchestrator, e.g. "verify" or "2/4". */
   phase: z.string().max(60).optional(),
+  /**
+   * Session key (`source:sessionId`) of the parent this session's agents are
+   * *already* accounted for by. The workflow watcher sets it to the Claude Code
+   * session that launched the workflow, so the orchestrator isn't double-counted
+   * on top of its own fleet. Ignored when the referenced session isn't present.
+   */
+  orchestrator: z.string().max(200).optional(),
 });
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 

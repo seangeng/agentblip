@@ -47,25 +47,36 @@ describe("findActiveJournals", () => {
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  const writeJournal = (proj: string, sess: string, wf: string, mtime?: number) => {
-    const p = path.join(dir, proj, sess, "subagents", "workflows", wf);
-    fs.mkdirSync(p, { recursive: true });
-    const f = path.join(p, "journal.jsonl");
-    fs.writeFileSync(f, j([{ type: "started" }]));
+  const wfPath = (proj: string, sess: string, wf: string) =>
+    path.join(dir, proj, sess, "subagents", "workflows", wf);
+  const writeFile = (dirPath: string, name: string, content: string, mtime?: number) => {
+    fs.mkdirSync(dirPath, { recursive: true });
+    const f = path.join(dirPath, name);
+    fs.writeFileSync(f, content);
     if (mtime !== undefined) fs.utimesSync(f, new Date(mtime), new Date(mtime));
     return f;
   };
+  const writeJournal = (proj: string, sess: string, wf: string, mtime?: number) =>
+    writeFile(wfPath(proj, sess, wf), "journal.jsonl", j([{ type: "started" }]), mtime);
 
-  it("finds recent workflow journals in the nested layout", () => {
+  it("finds recent workflow journals and derives the orchestrator session", () => {
     writeJournal("-proj", "sess1", "wf_aaa");
     writeJournal("-proj", "sess2", "wf_bbb");
     const found = findActiveJournals(dir, Date.now());
     expect(found.map((x) => x.wfId).sort()).toEqual(["wf_aaa", "wf_bbb"]);
+    expect(found.find((x) => x.wfId === "wf_aaa")?.orchestrator).toBe("claude-code:sess1");
   });
 
-  it("skips journals older than the active window", () => {
+  it("skips workflows whose files are all older than the active window", () => {
     writeJournal("-proj", "sess1", "wf_old", Date.now() - 60 * 60 * 1000);
     expect(findActiveJournals(dir, Date.now())).toHaveLength(0);
+  });
+
+  it("keeps a workflow live off a fresh agent file even when journal.jsonl is stale", () => {
+    const p = wfPath("-proj", "sess1", "wf_long");
+    writeJournal("-proj", "sess1", "wf_long", Date.now() - 60 * 60 * 1000); // stale journal
+    writeFile(p, "agent-abc.jsonl", "…\n", Date.now()); // but an agent is writing
+    expect(findActiveJournals(dir, Date.now()).map((x) => x.wfId)).toEqual(["wf_long"]);
   });
 
   it("returns nothing for a missing projects dir", () => {
@@ -76,13 +87,31 @@ describe("findActiveJournals", () => {
 describe("stepWorkflows", () => {
   const NOW = 1_700_000_000_000;
 
-  it("emits a working event with the agent count on first sight", () => {
+  it("emits a working event with the agent count + orchestrator on first sight", () => {
     const active = new Map<string, WfState>();
-    const events = stepWorkflows(active, [{ wfId: "wf1", count: 5 }], NOW);
+    const events = stepWorkflows(
+      active,
+      [{ wfId: "wf1", count: 5, orchestrator: "claude-code:sess1" }],
+      NOW,
+    );
     expect(events).toEqual([
-      { source: "workflow", sessionId: "wf1", kind: "working", agents: 5, activity: "running a workflow", ts: NOW },
+      {
+        source: "workflow",
+        sessionId: "wf1",
+        kind: "working",
+        agents: 5,
+        activity: "running a workflow",
+        orchestrator: "claude-code:sess1",
+        ts: NOW,
+      },
     ]);
     expect(active.get("wf1")?.agents).toBe(5);
+  });
+
+  it("ignores a drained journal we were never tracking (no adopt-then-end churn)", () => {
+    const active = new Map<string, WfState>();
+    expect(stepWorkflows(active, [{ wfId: "done", count: 0 }], NOW)).toEqual([]);
+    expect(active.size).toBe(0);
   });
 
   it("heartbeats when the count is unchanged (survives a long steady phase)", () => {
