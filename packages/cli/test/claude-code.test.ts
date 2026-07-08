@@ -60,6 +60,12 @@ describe("mapHookInput", () => {
     );
   });
 
+  it("labels Workflow (ultracode) as orchestrating a workflow", () => {
+    expect(mapHookInput(input({ tool_name: "Workflow" }))?.activity).toBe(
+      "orchestrating a workflow",
+    );
+  });
+
   it.each(["WebFetch", "WebSearch"])("labels %s as browsing the web", (tool) => {
     expect(mapHookInput(input({ tool_name: tool }))?.activity).toBe("browsing the web");
   });

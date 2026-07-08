@@ -75,6 +75,10 @@ export class SessionStore {
       // often arrives label-less between richer events).
       activity: event.activity ?? (nextState === "working" ? existing?.activity : undefined),
       project: event.project ?? existing?.project,
+      // agents/phase are sticky like activity: a bare heartbeat/tool event
+      // doesn't wipe an orchestrator's reported fan-out.
+      agents: event.agents ?? existing?.agents ?? 1,
+      phase: event.phase ?? (nextState === "working" ? existing?.phase : undefined),
       startedAt: existing?.startedAt ?? ts,
       updatedAt: ts,
     });
@@ -87,7 +91,14 @@ export class SessionStore {
       const staleAfter =
         s.state === "working" ? this.workingStaleMs : this.waitingStaleMs;
       if (s.state !== "idle" && silentFor > staleAfter) {
-        this.sessions.set(key, { ...s, state: "idle", activity: undefined });
+        // a demoted session no longer represents live work or a live fleet
+        this.sessions.set(key, {
+          ...s,
+          state: "idle",
+          activity: undefined,
+          agents: 1,
+          phase: undefined,
+        });
       } else if (s.state === "idle" && silentFor > this.idleEvictMs) {
         this.sessions.delete(key);
       }
@@ -98,12 +109,15 @@ export class SessionStore {
     const sessions = [...this.sessions.values()].sort(
       (a, b) => b.updatedAt - a.updatedAt,
     );
-    const working = sessions.filter((s) => s.state === "working").length;
+    const workingSessions = sessions.filter((s) => s.state === "working");
+    const working = workingSessions.length;
     const waiting = sessions.filter((s) => s.state === "waiting").length;
     const idle = sessions.filter((s) => s.state === "idle").length;
-    const latestActivity = sessions.find(
-      (s) => s.state === "working" && s.activity,
-    )?.activity;
+    const agentCount = workingSessions.reduce((n, s) => n + (s.agents || 1), 0);
+    // activity and phase are looked up independently — an orchestrator may
+    // report a phase with no fine-grained activity, and vice versa.
+    const latestActivity = workingSessions.find((s) => s.activity)?.activity;
+    const latestPhase = workingSessions.find((s) => s.phase)?.phase;
 
     return {
       sessions,
@@ -111,9 +125,14 @@ export class SessionStore {
       waiting,
       idle,
       total: sessions.length,
+      agentCount,
       latestActivity,
+      latestPhase,
       signature: sessions
-        .map((s) => `${s.key}=${s.state}:${s.activity ?? ""}:${s.project ?? ""}`)
+        .map(
+          (s) =>
+            `${s.key}=${s.state}:${s.agents}:${s.activity ?? ""}:${s.phase ?? ""}:${s.project ?? ""}`,
+        )
         .sort()
         .join("|"),
     };

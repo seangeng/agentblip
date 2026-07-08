@@ -4,6 +4,7 @@ import { runDoctor } from "./commands/doctor";
 import { runEmit } from "./commands/emit";
 import { runHook } from "./commands/hook";
 import { runPause, runResume } from "./commands/pause";
+import { runReport } from "./commands/report";
 import { runSetup } from "./commands/setup";
 import { runStart } from "./commands/start";
 import { runStatus } from "./commands/status";
@@ -66,7 +67,21 @@ program
   .option("--state <state>", "alias for --kind (working | waiting | idle)")
   .option("--activity <text>", "short activity label")
   .option("--project <name>", "project name")
+  .option("--agents <n>", "concurrent agents this session represents")
+  .option("--phase <label>", "orchestrator phase label")
   .action(wrap(runEmit));
+
+program
+  .command("report")
+  .description("Report a fan-out of concurrent agents (workflows, CI) so \"N agents working\" is accurate")
+  .option("--id <id>", "run/session id (one per concurrent fleet)", "run")
+  .option("--source <source>", "event source id", "workflow")
+  .option("--agents <n>", "number of concurrent agents", "1")
+  .option("--phase <label>", "current phase, e.g. \"verify\" or \"2/4\"")
+  .option("--activity <text>", "short activity label")
+  .option("--project <name>", "project name")
+  .option("--done", "clear this report (the fleet finished)")
+  .action(wrap(runReport));
 
 program
   .command("hook")

@@ -33,6 +33,8 @@ export interface Templates {
   repoActivityOne: string;
   /** Multiple working sessions, activity granularity, repoPrefix on. {working} {project} {activity} */
   repoActivityMany: string;
+  /** Appended when an orchestrator reported a phase. Placeholder: {phase} */
+  phaseSuffix: string;
   /** Only waiting sessions remain (nothing working). Placeholder: {waiting} */
   waitingOnly: string;
 }
@@ -46,6 +48,7 @@ export const DEFAULT_TEMPLATES: Templates = {
   activityMany: "{working} agents · {activity}",
   repoActivityOne: "{project}: {activity}",
   repoActivityMany: "{working} agents · {project}: {activity}",
+  phaseSuffix: " · {phase}",
   waitingOnly: "{waiting} agent(s) waiting on me",
 };
 
@@ -101,6 +104,11 @@ export function formatStatus(
   const agent = active ? displayName(active.source) : "";
   const activity = redact(snap.latestActivity ?? "");
   const project = active?.project ? redact(active.project) : "";
+  const phase = snap.latestPhase ? redact(snap.latestPhase) : "";
+  // The displayed number is total concurrent agents, not sessions — so a single
+  // session that reported a fleet of 5 shows "5 agents working".
+  const count = snap.agentCount;
+  const single = count === 1;
 
   // Lead with the repo name in activity mode when we know it and it's enabled.
   const repoLed = Boolean(opts.repoPrefix && project && granularity === "activity" && activity);
@@ -112,26 +120,23 @@ export function formatStatus(
     text = templates.presence;
   } else if (granularity === "activity" && activity) {
     if (repoLed) {
-      text =
-        snap.working === 1
-          ? fill(templates.repoActivityOne, { project, activity, agent })
-          : fill(templates.repoActivityMany, { working: snap.working, project, activity });
+      text = single
+        ? fill(templates.repoActivityOne, { project, activity, agent })
+        : fill(templates.repoActivityMany, { working: count, project, activity });
     } else {
-      text =
-        snap.working === 1
-          ? fill(templates.activityOne, { agent, activity, project })
-          : fill(templates.activityMany, { working: snap.working, activity });
+      text = single
+        ? fill(templates.activityOne, { agent, activity, project })
+        : fill(templates.activityMany, { working: count, activity });
     }
   } else {
-    text =
-      snap.working === 1
-        ? fill(templates.workingOne, { agent, activity, project })
-        : fill(templates.workingMany, {
-            working: snap.working,
-            total: snap.total,
-          });
+    text = single
+      ? fill(templates.workingOne, { agent, activity, project })
+      : fill(templates.workingMany, { working: count, total: snap.total });
   }
 
+  if (phase && granularity !== "presence") {
+    text += fill(templates.phaseSuffix, { phase });
+  }
   if (snap.working > 0 && snap.waiting > 0 && granularity !== "presence") {
     text += fill(templates.waitingSuffix, { waiting: snap.waiting });
   }

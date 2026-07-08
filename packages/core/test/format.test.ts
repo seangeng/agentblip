@@ -128,6 +128,59 @@ describe("formatStatus", () => {
     expect(s?.text).toBe("claude: finalizing CI/CD");
   });
 
+  it("reports orchestrator fan-out: one session with agents=N shows N agents", () => {
+    const store = new SessionStore();
+    store.apply(
+      { source: "workflow", sessionId: "run1", kind: "working", agents: 5 },
+      NOW,
+    );
+    const snap = store.snapshot();
+    expect(snap.working).toBe(1); // one session…
+    expect(snap.agentCount).toBe(5); // …but five agents
+    expect(formatStatus(snap, {}, NOW)?.text).toBe("5 agents working");
+  });
+
+  it("sums agents across sessions", () => {
+    const store = new SessionStore();
+    store.apply({ source: "workflow", sessionId: "r", kind: "working", agents: 5 }, NOW);
+    store.apply({ source: "claude-code", sessionId: "s", kind: "working" }, NOW + 1);
+    expect(store.snapshot().agentCount).toBe(6);
+    expect(formatStatus(store.snapshot(), {}, NOW)?.text).toBe("6 agents working");
+  });
+
+  it("appends the phase label when an orchestrator reports one", () => {
+    const store = new SessionStore();
+    store.apply(
+      { source: "workflow", sessionId: "r", kind: "working", agents: 4, phase: "verify" },
+      NOW,
+    );
+    expect(formatStatus(store.snapshot(), {}, NOW)?.text).toBe("4 agents working · verify");
+    expect(
+      formatStatus(store.snapshot(), { granularity: "activity" }, NOW)?.text,
+    ).toBe("4 agents working · verify"); // no activity → count text + phase
+  });
+
+  it("phase survives a bare heartbeat and clears on demotion", () => {
+    const store = new SessionStore({ workingStaleMs: 1000 });
+    store.apply({ source: "workflow", sessionId: "r", kind: "working", agents: 3, phase: "build" }, 1000);
+    store.apply({ source: "workflow", sessionId: "r", kind: "heartbeat" }, 1500);
+    expect(store.snapshot().latestPhase).toBe("build");
+    expect(store.snapshot().agentCount).toBe(3);
+    store.sweep(3000); // stale → idle, fleet dissolves
+    const snap = store.snapshot();
+    expect(snap.working).toBe(0);
+    expect(snap.agentCount).toBe(0);
+  });
+
+  it("plain sessions are unaffected: agentCount equals working", () => {
+    const store = new SessionStore();
+    store.apply({ source: "claude-code", sessionId: "a", kind: "working" }, NOW);
+    store.apply({ source: "claude-code", sessionId: "b", kind: "working" }, NOW + 1);
+    const snap = store.snapshot();
+    expect(snap.agentCount).toBe(snap.working);
+    expect(formatStatus(snap, {}, NOW)?.text).toBe("2 agents working");
+  });
+
   it("repoPrefix only affects activity granularity", () => {
     const s = formatStatus(
       snapFrom([{ activity: "editing README.md", project: "b3iq" }]),

@@ -10,6 +10,8 @@ export interface EmitOptions {
   state?: string;
   activity?: string;
   project?: string;
+  agents?: string;
+  phase?: string;
 }
 
 export async function runEmit(opts: EmitOptions): Promise<void> {
@@ -20,6 +22,8 @@ export async function runEmit(opts: EmitOptions): Promise<void> {
     kind: opts.kind ?? opts.state ?? "working",
     activity: opts.activity,
     project: opts.project,
+    agents: opts.agents !== undefined ? Number.parseInt(opts.agents, 10) : undefined,
+    phase: opts.phase,
     ts: Date.now(),
   });
   if (!parsed.success) {

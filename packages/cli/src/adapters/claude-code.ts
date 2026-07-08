@@ -60,6 +60,8 @@ function toolLabel(
     case "Task":
     case "Agent":
       return "delegating to subagents";
+    case "Workflow":
+      return "orchestrating a workflow";
     case "WebFetch":
     case "WebSearch":
       return "browsing the web";

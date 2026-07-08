@@ -55,6 +55,7 @@ async function startServer(): Promise<TestHarness> {
         waiting: 0,
         idle: 0,
         total: 0,
+        agentCount: 0,
         signature: "",
       },
       formatted: null,

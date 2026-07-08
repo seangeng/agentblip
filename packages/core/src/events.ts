@@ -27,6 +27,15 @@ export const sessionEventSchema = z.object({
   activity: z.string().max(200).optional(), // short label, e.g. "editing format.ts"
   project: z.string().max(120).optional(), // usually basename of cwd
   ts: z.number().int().positive().optional(), // epoch ms; defaults to receipt time
+  /**
+   * How many concurrent agents this one session represents. Default 1. An
+   * orchestrator (an ultracode workflow, a CI fan-out) sets this so "N agents
+   * working" reflects real parallelism, not just the number of top-level
+   * sessions. Hooks can't see subagent count, so it must be self-reported.
+   */
+  agents: z.number().int().min(1).max(999).optional(),
+  /** Optional phase label from an orchestrator, e.g. "verify" or "2/4". */
+  phase: z.string().max(60).optional(),
 });
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 
