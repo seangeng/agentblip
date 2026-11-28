@@ -1,4 +1,4 @@
-import { HUB_REVIEW_ROUNDS_MAX } from "@workmesh/protocol";
+import { HUB_REVIEW_AGENTS, HUB_REVIEW_ROUNDS_MAX } from "@workmesh/protocol";
 import type { HubHandoffAccepted } from "@workmesh/protocol";
 import { CoordClient } from "../hub/coord";
 import type { ReviewSettings } from "../lib/config";
@@ -108,7 +108,8 @@ export function reviewPolicyOp(a: Args, deps: ReviewOpsDeps): CoordOpResult {
   }
   if (typeof a.agent === "string") {
     const v = a.agent.trim().toLowerCase();
-    if (v !== "claude" && v !== "codex" && v !== "default") return fail("`--agent` is claude or codex (or default).");
+    const valid = [...HUB_REVIEW_AGENTS, "auto", "default"];
+    if (!valid.includes(v)) return fail(`\`--agent\` is ${HUB_REVIEW_AGENTS.join(", ")}, auto, or default.`);
     patch.agent = v === "default" ? null : v;
   }
   if (typeof a.model === "string") {

@@ -6,6 +6,7 @@ import {
   HUB_DEVICE_TOKEN_RE,
   HUB_GITHUB_LOGIN_RE,
   HUB_REPO_RE,
+  HUB_REVIEW_AGENTS,
   hubCapacityProviderSchema,
   hubCapacityShareSchema,
   hubHandoffAgentSchema,
@@ -17,7 +18,7 @@ import {
 import { REQUEST_RULES_MAX, REQUEST_RULE_PER_DAY_MAX, type RequestRule } from "../daemon/request-rules";
 import { POOL_RULES_MAX, POOL_RULE_PER_DAY_MAX, type PoolRule, type PoolSettings } from "../daemon/pool-rules";
 import type { FormatOptions } from "@workmesh/core";
-import type { HubCapacityShareLevel, HubHandoffAgent, HubShareLevel } from "@workmesh/protocol";
+import type { HubCapacityShareLevel, HubHandoffAgent, HubReviewAgent, HubShareLevel } from "@workmesh/protocol";
 import { envSetting } from "./names";
 import { configPath } from "./paths";
 
@@ -250,8 +251,8 @@ export const configSchema = z.object({
        * a person approves the PR.
        */
       postToGitHub: z.boolean().optional().catch(undefined),
-      /** The agent CLI reviews run on (default: `handoffs.agent`, else claude when found, else codex). */
-      agent: z.enum(["claude", "codex"]).optional().catch(undefined),
+      /** The agent CLI reviews run on (`auto` routes via qswap fleet_status.json; default: `handoffs.agent`, else claude, codex, …). */
+      agent: z.enum([...HUB_REVIEW_AGENTS, "auto"] as const).optional().catch(undefined),
       /** The model reviews run on (default: `handoffs.model`, else the agent's default). */
       model: z.string().regex(/^[\w.:\[\]/-]{1,80}$/).optional().catch(undefined),
       /**
@@ -594,7 +595,7 @@ export function patchReviewConfig(config: Config, patch: Partial<Record<keyof Re
 export interface ReviewSettings {
   accept: "auto" | "ask" | "never";
   postToGitHub: boolean;
-  agent?: "claude" | "codex";
+  agent?: HubReviewAgent | "auto";
   model?: string;
   /** Undefined: the hub's word (the person's board setting, the team's repos). */
   auto?: boolean;
@@ -604,7 +605,10 @@ export interface ReviewSettings {
 
 export function reviewSettings(config: Pick<Config, "reviews" | "handoffs">): ReviewSettings {
   const r = config.reviews;
-  const fallbackAgent = config.handoffs?.agent === "claude" || config.handoffs?.agent === "codex" ? config.handoffs.agent : undefined;
+  const fallbackAgent =
+    config.handoffs?.agent && (HUB_REVIEW_AGENTS as readonly string[]).includes(config.handoffs.agent)
+      ? (config.handoffs.agent as HubReviewAgent)
+      : undefined;
   const agent = r?.agent ?? fallbackAgent;
   const model = r?.model ?? config.handoffs?.model;
   return {

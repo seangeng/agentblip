@@ -62,6 +62,7 @@ For what to run when, start with the [guide](../guide/getting-started.md).
 | [`workmesh wake`](#workmesh-wake) | Show or set whether an idle session wakes (on by default), and whose messages may wake it (replies by default) |
 | [`workmesh mcp`](#workmesh-mcp) | Serve the team coordination tools over MCP (stdio), for Claude Code and Codex |
 | [`workmesh capacity`](#workmesh-capacity) | View local qswap subscription headroom and opt in to sharing capacity with your team hub |
+| [`workmesh route`](#workmesh-route) | Recommend the best local AI subscription for a task from qswap's fleet_status.json |
 | [`workmesh pool`](#workmesh-pool) | Opt in to letting teammates delegate worktree PR and read-only tasks to your spare subscriptions |
 | [`workmesh pool rule`](#workmesh-pool-rule) | Manage local capacity pool rules (terminal-only consent; checked against live qswap headroom) |
 | [`workmesh doctor`](#workmesh-doctor) | Check config, daemon, relay, and hook installs |
@@ -178,6 +179,8 @@ Commands:
   capacity [options] [action] [level]  View local qswap subscription headroom
                                        and opt in to sharing capacity with your
                                        team hub
+  route [options]                      Recommend the best local AI subscription
+                                       for a task from qswap's fleet_status.json
   pool [options] [action]              Opt in to letting teammates delegate
                                        worktree PR and read-only tasks to your
                                        spare subscriptions
@@ -976,18 +979,19 @@ Which reviews this machine runs without a click (ask, the default; auto; never),
 and whether it posts them on the PR
 
 Arguments:
-  accept                  auto | ask | never
+  accept               auto | ask | never
 
 Options:
-  --post <on|off>         post finished reviews on the PR as a comment through
-                          your gh (default off; never an approval)
-  --agent <claude|codex>  the agent CLI reviews run on
-  --model <name>          the model reviews run on
-  --auto <on|off|hub>     ask for a review when a PR you open here is ready
-                          (hub: your board setting)
-  --count <n>             reviewers per request: 1 or 2
-  --json                  machine-readable output
-  -h, --help              display help for command
+  --post <on|off>      post finished reviews on the PR as a comment through your
+                       gh (default off; never an approval)
+  --agent <agent>      the agent CLI reviews run on (claude, codex, opencode,
+                       gemini, antigravity, grok, cursor, amp, auto, or default)
+  --model <name>       the model reviews run on
+  --auto <on|off|hub>  ask for a review when a PR you open here is ready (hub:
+                       your board setting)
+  --count <n>          reviewers per request: 1 or 2
+  --json               machine-readable output
+  -h, --help           display help for command
 ```
 
 ## workmesh roots
@@ -1081,6 +1085,22 @@ Arguments:
 Options:
   --json      machine-readable output
   -h, --help  display help for command
+```
+
+## workmesh route
+
+```text
+Usage: workmesh route [options]
+
+Recommend the best local AI subscription for a task from qswap's
+fleet_status.json
+
+Options:
+  --task <kind>     coding | review | long_context | research | bulk (default:
+                    coding)
+  --caller <agent>  calling agent for cross-harness diversity (e.g. claude)
+  --json            machine-readable output
+  -h, --help        display help for command
 ```
 
 ## workmesh pool

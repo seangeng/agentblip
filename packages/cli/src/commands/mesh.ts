@@ -2,9 +2,11 @@ import {
   HUB_CAPACITY_PROVIDERS,
   HUB_CAPACITY_SHARE_LEVELS,
   HUB_POOL_MODES,
+  HUB_TASK_KINDS,
   type HubCapacityProvider,
   type HubCapacityShareLevel,
   type HubPoolMode,
+  type HubTaskKind,
 } from "@workmesh/protocol";
 import {
   capacityShareLevel,
@@ -14,7 +16,7 @@ import {
   saveConfig,
   type Config,
 } from "../lib/config";
-import { formatFleetSummary, readFleetStatus } from "../lib/fleet";
+import { formatFleetSummary, pickBestProvider, readFleetStatus } from "../lib/fleet";
 import { POOL_RULES_MAX, poolRuleWords, type PoolRule } from "../daemon/pool-rules";
 import { bold, confirm, dim, green, yellow } from "../lib/ui";
 
@@ -210,4 +212,52 @@ export async function runPoolRule(
   }
   write([...pool.rules, rule], true);
   deps.print(green(`added (pool ON): ${poolRuleWords(rule)}`));
+}
+
+/**
+ * `workmesh route [--task <kind>] [--caller <agent>] [--json]` (SPEC §61):
+ * Recommend the best local AI subscription for a task from qswap's fleet_status.json.
+ */
+export async function runRoute(
+  opts: { task?: string; caller?: string; json?: boolean } = {},
+  deps: Pick<MeshCommandDeps, "print" | "fleetFile"> = defaultDeps,
+): Promise<void> {
+  const kindRaw = (opts.task ?? "coding").trim().toLowerCase();
+  if (!HUB_TASK_KINDS.includes(kindRaw as HubTaskKind)) {
+    throw new Error(`unknown task kind "${opts.task}" — use ${HUB_TASK_KINDS.join(", ")}`);
+  }
+  const taskKind = kindRaw as HubTaskKind;
+  const caller = opts.caller?.trim().toLowerCase() || undefined;
+  const fleet = readFleetStatus(deps.fleetFile);
+  const best = pickBestProvider(fleet, { taskKind, ...(caller ? { caller } : {}) });
+  const ranked = fleet?.recommendations[taskKind] ?? fleet?.recommendations.coding ?? [];
+
+  if (opts.json) {
+    deps.print(
+      JSON.stringify(
+        {
+          task: taskKind,
+          caller: caller ?? null,
+          best: best ?? null,
+          ranked,
+          updatedAt: fleet?.updatedAt ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (!fleet) {
+    deps.print(dim("no qswap fleet_status.json found — run `qswap where` to refresh fleet capacity"));
+    return;
+  }
+  if (!best) {
+    deps.print(yellow(`no eligible provider with spare headroom for ${taskKind}`));
+    return;
+  }
+  deps.print(`${green(best.provider)} (${best.reason}) — cli: ${bold(best.cli)}`);
+  for (const alt of ranked.filter((r) => r.provider !== best.provider).slice(0, 4)) {
+    deps.print(dim(`  alt: ${alt.provider} (${alt.reason})`));
+  }
 }
