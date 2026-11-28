@@ -38,23 +38,32 @@ interface RawOpenCodeRow {
   time_archived?: number | null;
 }
 
-function queryOpenCodeDb(dbPath: string): Promise<RawOpenCodeRow[]> {
+function queryOpenCodeDb(dbPath: string): Promise<RawOpenCodeRow[] | null> {
   return new Promise((resolve) => {
     const sql =
       "SELECT id, directory, title, model, time_created, time_updated, time_busy, time_idle, time_archived " +
       "FROM session_v2 WHERE time_archived IS NULL ORDER BY time_updated DESC LIMIT 20;";
-    execFile("sqlite3", ["-readonly", "-json", dbPath, sql], { timeout: 2000, maxBuffer: 512 * 1024 }, (err, stdout) => {
-      if (err || !stdout.trim()) {
-        resolve([]);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stdout) as unknown;
-        resolve(Array.isArray(parsed) ? (parsed as RawOpenCodeRow[]) : []);
-      } catch {
-        resolve([]);
-      }
-    });
+    execFile(
+      "sqlite3",
+      ["-readonly", "-json", "-cmd", ".timeout 1000", dbPath, sql],
+      { timeout: 3000, maxBuffer: 512 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          resolve(null);
+          return;
+        }
+        if (!stdout.trim()) {
+          resolve([]);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout) as unknown;
+          resolve(Array.isArray(parsed) ? (parsed as RawOpenCodeRow[]) : null);
+        } catch {
+          resolve(null);
+        }
+      },
+    );
   });
 }
 
@@ -83,6 +92,7 @@ export function createOpenCodeWatcher(opts: OpenCodeWatcherOptions): OpenCodeWat
     inFlight = true;
     try {
       const rows = await queryOpenCodeDb(dbPath);
+      if (rows === null) return;
       const now = Date.now();
       const alive = new Set<string>();
       for (const r of rows) {

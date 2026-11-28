@@ -45,24 +45,33 @@ export interface RawAntigravityRow {
   killed?: number | boolean;
 }
 
-function queryAntigravityDb(dbPath: string): Promise<RawAntigravityRow[]> {
+function queryAntigravityDb(dbPath: string): Promise<RawAntigravityRow[] | null> {
   return new Promise((resolve) => {
     const sql =
       "SELECT conversation_id, title, step_count, last_modified_time, workspace_uris, status, " +
       "agent_name, parent_conversation_id, nesting_depth, not_fully_idle, killed " +
       "FROM conversation_summaries WHERE killed = 0 ORDER BY last_modified_time DESC LIMIT 50;";
-    execFile("sqlite3", ["-readonly", "-json", dbPath, sql], { timeout: 2500, maxBuffer: 1024 * 1024 }, (err, stdout) => {
-      if (err || !stdout.trim()) {
-        resolve([]);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stdout) as unknown;
-        resolve(Array.isArray(parsed) ? (parsed as RawAntigravityRow[]) : []);
-      } catch {
-        resolve([]);
-      }
-    });
+    execFile(
+      "sqlite3",
+      ["-readonly", "-json", "-cmd", ".timeout 1000", dbPath, sql],
+      { timeout: 3000, maxBuffer: 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          resolve(null);
+          return;
+        }
+        if (!stdout.trim()) {
+          resolve([]);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout) as unknown;
+          resolve(Array.isArray(parsed) ? (parsed as RawAntigravityRow[]) : null);
+        } catch {
+          resolve(null);
+        }
+      },
+    );
   });
 }
 
@@ -221,6 +230,7 @@ export function createAntigravityWatcher(opts: AntigravityWatcherOptions): Antig
     inFlight = true;
     try {
       const rows = await queryAntigravityDb(dbPath);
+      if (rows === null) return;
       const now = Date.now();
 
       // Count active child subagents per parent conversation.
