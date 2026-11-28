@@ -30,7 +30,7 @@ import { runEmit } from "./commands/emit";
 import { runHook } from "./commands/hook";
 import { runInit } from "./commands/init";
 import { runHandoffPolicy, runRequestRule, runRoots } from "./commands/roots";
-import { runCapacity, runPool, runPoolRule } from "./commands/mesh";
+import { runCapacity, runPool, runPoolRule, runRoute } from "./commands/mesh";
 import { runWake, runWakeWait } from "./commands/wake";
 import {
   EXAMPLE_HUB_URL,
@@ -472,7 +472,7 @@ reviews
   .description("Which reviews this machine runs without a click (ask, the default; auto; never), and whether it posts them on the PR")
   .argument("[accept]", "auto | ask | never")
   .option("--post <on|off>", "post finished reviews on the PR as a comment through your gh (default off; never an approval)")
-  .option("--agent <claude|codex>", "the agent CLI reviews run on")
+  .option("--agent <agent>", "the agent CLI reviews run on (claude, codex, opencode, gemini, antigravity, grok, cursor, amp, auto, or default)")
   .option("--model <name>", "the model reviews run on")
   .option("--auto <on|off|hub>", "ask for a review when a PR you open here is ready (hub: your board setting)")
   .option("--count <n>", "reviewers per request: 1 or 2")
@@ -522,6 +522,14 @@ program
   .argument("[level]", "with share: off | availability | detailed")
   .option("--json", "machine-readable output")
   .action(wrap((action: string | undefined, level: string | undefined, opts: { json?: boolean }) => runCapacity(action, level, opts)));
+
+program
+  .command("route")
+  .description("Recommend the best local AI subscription for a task from qswap's fleet_status.json")
+  .option("--task <kind>", "coding | review | long_context | research | bulk (default: coding)")
+  .option("--caller <agent>", "calling agent for cross-harness diversity (e.g. claude)")
+  .option("--json", "machine-readable output")
+  .action(wrap((opts: { task?: string; caller?: string; json?: boolean }) => runRoute(opts)));
 
 const poolCmd = program
   .command("pool")

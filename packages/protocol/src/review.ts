@@ -57,8 +57,17 @@ export const HUB_REVIEW_VERDICTS = ["no_issues", "comments", "changes_suggested"
 export const hubReviewVerdictSchema = z.enum(HUB_REVIEW_VERDICTS);
 export type HubReviewVerdict = z.infer<typeof hubReviewVerdictSchema>;
 
-/** The agent CLIs a relay runs (the same two a handoff runs, §31). */
-export const HUB_REVIEW_AGENTS = ["claude", "codex"] as const;
+/** The agent CLIs a relay runs for read-only PR reviews (SPEC §53, §61). */
+export const HUB_REVIEW_AGENTS = [
+  "claude",
+  "codex",
+  "opencode",
+  "gemini",
+  "antigravity",
+  "grok",
+  "cursor",
+  "amp",
+] as const;
 export const hubReviewAgentSchema = z.enum(HUB_REVIEW_AGENTS);
 export type HubReviewAgent = z.infer<typeof hubReviewAgentSchema>;
 

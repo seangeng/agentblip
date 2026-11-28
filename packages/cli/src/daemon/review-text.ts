@@ -28,7 +28,16 @@ import { QUOTE_MARK, cleanText, label, oneLine, quoted } from "../lib/untrusted"
  * (an injection can live in a PR), and a reviewer agent's findings are untrusted input to the author's agent.
  */
 
-export const AGENT_NAMES: Record<HubReviewAgent, string> = { claude: "Claude Code", codex: "Codex" };
+export const AGENT_NAMES: Record<HubReviewAgent, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  opencode: "OpenCode",
+  gemini: "Gemini CLI",
+  antigravity: "Antigravity",
+  grok: "Grok",
+  cursor: "Cursor",
+  amp: "Amp",
+};
 const SEVERITIES: readonly HubReviewSeverity[] = ["high", "medium", "low", "nit"];
 /** How many findings a review run may report (the protocol allows more; the prompt asks for at most this many). */
 export const PROMPT_FINDINGS_MAX = 20;

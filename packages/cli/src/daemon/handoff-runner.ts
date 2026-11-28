@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { HubHandoffAccepted, HubHandoffAgent, HubReviewAgent, HubReviewResult, HubShareLevel } from "@workmesh/protocol";
-import { HUB_DELEGATE_NOTE_MAX, HUB_REVIEW_ROUNDS_MAX } from "@workmesh/protocol";
+import { HUB_DELEGATE_NOTE_MAX, HUB_REVIEW_AGENTS, HUB_REVIEW_ROUNDS_MAX } from "@workmesh/protocol";
 import type { CoordClient } from "../hub/coord";
 import type { ReviewSettings } from "../lib/config";
 import { pickBestProvider, readFleetStatus } from "../lib/fleet";
@@ -465,13 +465,44 @@ export class HandoffRunner implements HandoffRunnerLike {
 
   private agentFor(
     kind?: "review",
-    h?: Pick<HubHandoffAccepted, "preferredAgent" | "taskKind">,
+    h?: Pick<HubHandoffAccepted, "preferredAgent" | "taskKind" | "from">,
   ): { agent: HandoffAgent; bin: string; viaHarness?: string } | undefined {
     const which = this.deps.which ?? ((b: string) => findBin(b));
     const settings = this.deps.settings();
     if (kind === "review") {
-      const want = settings.reviews?.agent ?? (settings.agent === "claude" || settings.agent === "codex" ? settings.agent : undefined);
-      const order: HandoffAgent[] = want ? [want] : ["claude", "codex"];
+      // 1. Explicit preferredAgent on the review handoff when valid for reviews.
+      if (h?.preferredAgent && (HUB_REVIEW_AGENTS as readonly string[]).includes(h.preferredAgent)) {
+        const found = this.resolveAgentBin(h.preferredAgent, which);
+        if (found) return found;
+      }
+      // 2. Explicit review agent setting (unless set to "auto").
+      const reviewPref = settings.reviews?.agent;
+      if (reviewPref && reviewPref !== "auto") {
+        const found = this.resolveAgentBin(reviewPref, which);
+        if (found) return found;
+        return undefined;
+      }
+      // 3. Cross-harness quota-aware routing via qswap fleet_status.json when `reviews.agent === "auto"`
+      //    or when a fleet snapshot is injected via deps.fleet.
+      if (reviewPref === "auto" || this.deps.fleet) {
+        const fleet = this.deps.fleet ? this.deps.fleet() : readFleetStatus();
+        const callerPrefix = h?.from?.sessionKey?.split(":")[0];
+        const caller =
+          callerPrefix === "claude-code" ? "claude" : callerPrefix && callerPrefix !== "workmesh" ? callerPrefix : undefined;
+        const best = pickBestProvider(fleet, {
+          taskKind: "review",
+          allowed: HUB_REVIEW_AGENTS,
+          ...(caller ? { caller } : {}),
+        });
+        if (best) {
+          const found = this.resolveAgentBin(best.provider, which);
+          if (found) return found;
+        }
+      }
+      // 4. Fallback to handoffs.agent (if review-capable), then installed review CLIs.
+      const fallbackHandoff =
+        settings.agent && (HUB_REVIEW_AGENTS as readonly string[]).includes(settings.agent) ? settings.agent : undefined;
+      const order: HandoffAgent[] = fallbackHandoff ? [fallbackHandoff] : [...HUB_REVIEW_AGENTS];
       for (const agent of order) {
         const found = this.resolveAgentBin(agent, which);
         if (found) return found;
@@ -812,7 +843,9 @@ export class HandoffRunner implements HandoffRunnerLike {
   reviewAgent(): { agent?: HubReviewAgent; model?: string } {
     const picked = this.agentFor("review");
     const reviewAgent: HubReviewAgent | undefined =
-      picked?.agent === "claude" || picked?.agent === "codex" ? picked.agent : undefined;
+      picked && (HUB_REVIEW_AGENTS as readonly string[]).includes(picked.agent)
+        ? (picked.agent as HubReviewAgent)
+        : undefined;
     const settings = this.deps.settings();
     const model = settings.reviews?.model ?? settings.model;
     return { ...(reviewAgent ? { agent: reviewAgent } : {}), ...(model ? { model } : {}) };
@@ -821,11 +854,12 @@ export class HandoffRunner implements HandoffRunnerLike {
   /**
    * A review handoff (SPEC §53): claims the run, makes a fresh checkout of the PR's head that can't push, and starts
    * the reviewer's agent headless in it with the review prompt, read-only: Claude Code without its edit tools, Codex
-   * in its workspace sandbox with no network and no escalation, and the daemon's review gate on every tool call.
+   * in its workspace sandbox with no network and no escalation, or another supported CLI (OpenCode, Gemini CLI,
+   * Antigravity, Grok, Cursor, Amp) with read-only flags and the daemon's review gate.
    */
   private async runReview(h: HubHandoffAccepted): Promise<void> {
     const coord = this.deps.coord();
-    const picked = this.agentFor("review");
+    const picked = this.agentFor("review", h);
     const review = h.review;
     if (!coord || !picked || !review || !h.repo) return;
     this.startingReviews.add(h.id);
@@ -874,7 +908,9 @@ export class HandoffRunner implements HandoffRunnerLike {
       } catch {
         memories = [];
       }
-      const reviewAgent: HubReviewAgent = picked.agent === "codex" ? "codex" : "claude";
+      const reviewAgent: HubReviewAgent = (HUB_REVIEW_AGENTS as readonly string[]).includes(picked.agent)
+        ? (picked.agent as HubReviewAgent)
+        : "claude";
       const prompt = reviewPrompt(h, {
         repo: h.repo,
         pr: review.pr,
@@ -907,10 +943,30 @@ export class HandoffRunner implements HandoffRunnerLike {
       }
       const model = rs?.model ?? settings.model;
       const name = `review ${h.repo.split("/")[1] ?? h.repo}#${review.pr} for ${label(h.from.person, 60)}`;
-      const argv =
-        picked.agent === "claude"
-          ? claudeReviewArgs(picked.bin, { sessionId: sessionId!, name, model })
-          : codexReviewArgs(picked.bin, { dir: checkoutDir, resultFile, schemaFile, model });
+      const promptArgMode =
+        picked.agent === "opencode" ||
+        picked.agent === "gemini" ||
+        picked.agent === "cursor" ||
+        picked.agent === "amp" ||
+        Boolean(picked.viaHarness);
+      let argv: string[];
+      if (picked.agent === "claude") {
+        argv = claudeReviewArgs(picked.bin, { sessionId: sessionId!, name, model });
+      } else if (picked.agent === "codex") {
+        argv = codexReviewArgs(picked.bin, { dir: checkoutDir, resultFile, schemaFile, model });
+      } else if (picked.viaHarness) {
+        argv = [picked.bin, "new", picked.viaHarness, "--name", name, checkoutDir, "--mode", "plan", "--"];
+      } else if (picked.agent === "opencode") {
+        argv = [picked.bin, "run", "--format", "json", "--title", name, ...(model ? ["--model", model] : [])];
+      } else if (picked.agent === "gemini") {
+        argv = [picked.bin, "--sandbox", ...(model ? ["-m", model] : []), "-p"];
+      } else if (picked.agent === "cursor") {
+        argv = [picked.bin, "-p", ...(model ? ["--model", model] : [])];
+      } else if (picked.agent === "amp") {
+        argv = [picked.bin, "-x"];
+      } else {
+        argv = [picked.bin, ...(model ? ["--model", model] : [])];
+      }
       const passed = handoffEnv(env0, picked.agent, settings.env);
       const env: NodeJS.ProcessEnv = {
         ...passed.env,
@@ -918,6 +974,7 @@ export class HandoffRunner implements HandoffRunnerLike {
         WORKMESH_HANDOFF: h.id,
         WORKMESH_REVIEW: "1",
         WM_EXIT_FILE: exitFile,
+        WM_PROMPT_FILE: promptFile,
         GIT_TERMINAL_PROMPT: "0",
         GH_PROMPT_DISABLED: "1",
       };
@@ -929,7 +986,10 @@ export class HandoffRunner implements HandoffRunnerLike {
       let pid: number | undefined;
       try {
         if (passed.dropped.length > 0) fs.writeSync(out, `${droppedEnvLine(passed.dropped)}\n`);
-        const child = (this.deps.spawnImpl ?? spawn)("/bin/sh", ["-c", '"$@"; echo $? > "$WM_EXIT_FILE"', "workmesh-review", ...argv], {
+        const shCmd = promptArgMode
+          ? '"$@" "$(cat "$WM_PROMPT_FILE")"; echo $? > "$WM_EXIT_FILE"'
+          : '"$@"; echo $? > "$WM_EXIT_FILE"';
+        const child = (this.deps.spawnImpl ?? spawn)("/bin/sh", ["-c", shCmd, "workmesh-review", ...argv], {
           cwd: checkoutDir,
           env,
           detached: true,
@@ -992,7 +1052,9 @@ export class HandoffRunner implements HandoffRunnerLike {
         await coord.handoff({ action: "fail", id: r.id, ...(r.sessionKey ? { sessionKey: r.sessionKey } : {}), note: `The review didn't finish: ${how}.` });
         return;
       }
-      const reviewAgent: HubReviewAgent = r.agent === "codex" ? "codex" : "claude";
+      const reviewAgent: HubReviewAgent = (HUB_REVIEW_AGENTS as readonly string[]).includes(r.agent)
+        ? (r.agent as HubReviewAgent)
+        : "claude";
       let result: HubReviewResult = parseReviewOutput(text, {
         agent: reviewAgent,
         ...(review.model ? { model: review.model } : {}),
@@ -1228,6 +1290,15 @@ export function agentAnswer(r: Pick<RunRecord, "agent" | "logFile" | "resultFile
       } catch {
         // not this line
       }
+    }
+    if (r.agent !== "claude") {
+      // Non-Claude CLIs (OpenCode, Gemini CLI, Grok, Cursor, Amp) print their response to stdout.
+      const cleaned = text
+        .split("\n")
+        .filter((l) => !l.startsWith("workmesh: dropped"))
+        .join("\n")
+        .trim();
+      return cleaned || undefined;
     }
   } catch {
     return undefined;
