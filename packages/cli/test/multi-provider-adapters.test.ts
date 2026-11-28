@@ -99,6 +99,41 @@ describe("Antigravity adapter", () => {
       agents: 2,
     });
   });
+
+  it("does not emit spurious end events when sqlite3 transiently fails", async () => {
+    const dir = makeTmp("wm-agy-busy-");
+    const db = path.join(dir, "conversation_summaries.db");
+    const nowIso = new Date().toISOString();
+    execFileSync("sqlite3", [
+      db,
+      `CREATE TABLE conversation_summaries (
+        conversation_id text PRIMARY KEY, title text, step_count integer, last_modified_time text,
+        workspace_uris text, status text, agent_name text, parent_conversation_id text,
+        nesting_depth integer, not_fully_idle integer, killed integer
+      );
+      INSERT INTO conversation_summaries VALUES
+        ('root-1', 'Parity Audit', 12, '${nowIso}', '["file:///tmp/b3"]', 'CASCADE_RUN_STATUS_RUNNING', '', '', 0, 1, 0);`,
+    ]);
+
+    const events: SessionEvent[] = [];
+    const watcher = createAntigravityWatcher({
+      dir,
+      intervalMs: 120,
+      onEvent: (e) => events.push(e),
+    });
+    await new Promise((r) => setTimeout(r, 250));
+    expect(events.some((e) => e.sessionId === "root-1" && e.kind === "working")).toBe(true);
+
+    // Simulate a transient SQLite failure (unreadable / locked DB) across several ticks.
+    const backup = fs.readFileSync(db);
+    fs.writeFileSync(db, "not-a-valid-sqlite-header");
+    await new Promise((r) => setTimeout(r, 350));
+    fs.writeFileSync(db, backup);
+    await new Promise((r) => setTimeout(r, 200));
+    watcher.stop();
+
+    expect(events.some((e) => e.kind === "end")).toBe(false);
+  });
 });
 
 describe("Grok Bot adapter", () => {
