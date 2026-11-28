@@ -30,8 +30,17 @@ export const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   "claude-code": "claude",
   codex: "codex",
   "gemini-cli": "gemini",
-  cursor: "cursor",
+  antigravity: "antigravity",
+  grok: "grok",
   opencode: "opencode",
+  cursor: "cursor",
+  copilot: "copilot",
+  windsurf: "windsurf",
+  amp: "amp",
+  aider: "aider",
+  cline: "cline",
+  zed: "zed",
+  harness: "harness",
 };
 
 export function displayName(source: string): string {

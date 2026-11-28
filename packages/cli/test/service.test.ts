@@ -209,7 +209,7 @@ describe("the service's program and environment", () => {
   it("carries PATH, HOME and the dirs Workmesh reads, nothing else", () => {
     const env = serviceEnv("/opt/homebrew/bin/node", { HOME: "/h", XDG_STATE_HOME: "/s", SECRET_TOKEN: "x", CLAUDE_CONFIG_DIR: "/c" });
     expect(env).toEqual({
-      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+      PATH: "/h/.local/bin:/h/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
       WORKMESH_SERVICE: "1",
       HOME: "/h",
       XDG_STATE_HOME: "/s",

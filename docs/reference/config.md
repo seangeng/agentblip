@@ -99,6 +99,12 @@ these keys again within a few seconds of a change, so a hand edit needs no resta
 | `adapters.gemini` | | Gemini CLI sessions read-only from `~/.gemini/tmp/*/chats/session-*.json`. |
 | `adapters.gemini.enabled` | `true` | |
 | `adapters.gemini.dir` | `~/.gemini` | |
+| `adapters.antigravity` | | Antigravity (Gemini) sessions read-only from `~/.gemini/antigravity/conversation_summaries.db` and transcript tails. |
+| `adapters.antigravity.enabled` | `true` | |
+| `adapters.antigravity.dir` | `~/.gemini/antigravity` | |
+| `adapters.grok` | | Grok Bot sessions read-only from `~/.grokbot/local-exec-daemon.json`. |
+| `adapters.grok.enabled` | `true` | |
+| `adapters.grok.dir` | `~/.grokbot` | |
 | `adapters.harness` | | Bridges non-Claude/non-Codex Harness CLI sessions (`antigravity`, `gemini-cli`, `grok`, `cursor`, `copilot`, `windsurf`, `amp`, `aider`, `cline`, `zed`, etc.) via `harness ps --json`. |
 | `adapters.harness.enabled` | `true` | |
 

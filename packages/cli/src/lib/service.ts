@@ -177,9 +177,11 @@ export function cliEntry(): string {
   return fileURLToPath(import.meta.url);
 }
 
-/** Environment the service carries over: a sane PATH (for `gh`) and the directories Workmesh reads. */
+/** Environment the service carries over: a sane PATH (for `gh`, `harness`, `claude`, `opencode`, `qswap`) and the directories Workmesh reads. */
 export function serviceEnv(node: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const dirs = [path.dirname(node), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+  const home = env.HOME;
+  const userDirs = home ? [path.join(home, ".local", "bin"), path.join(home, ".opencode", "bin")] : [];
+  const dirs = [...userDirs, path.dirname(node), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
   const out: Record<string, string> = { PATH: [...new Set(dirs)].join(":"), [SERVICE_ENV]: "1" };
   // HOME too (0.12): launchd gives a job the account's home, which is the same unless Workmesh runs under another HOME.
   for (const k of ["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "WORKMESH_CONFIG", "WORKMESH_LAUNCHD_LABEL"]) {

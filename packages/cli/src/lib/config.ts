@@ -169,6 +169,18 @@ export const configSchema = z.object({
           dir: z.string().optional(),
         })
         .default({ enabled: true }),
+      antigravity: z
+        .object({
+          enabled: z.boolean().default(true),
+          dir: z.string().optional(),
+        })
+        .default({ enabled: true }),
+      grok: z
+        .object({
+          enabled: z.boolean().default(true),
+          dir: z.string().optional(),
+        })
+        .default({ enabled: true }),
       harness: z
         .object({
           enabled: z.boolean().default(true),
@@ -181,6 +193,8 @@ export const configSchema = z.object({
       workflow: { enabled: true },
       opencode: { enabled: true },
       gemini: { enabled: true },
+      antigravity: { enabled: true },
+      grok: { enabled: true },
       harness: { enabled: true },
     }),
   autoStartDaemon: z.boolean().default(true),
