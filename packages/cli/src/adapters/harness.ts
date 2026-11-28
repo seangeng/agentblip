@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { SessionEvent } from "@workmesh/core";
 
@@ -18,6 +20,34 @@ export interface HarnessWatcherOptions {
   intervalMs?: number;
   onEvent: (event: SessionEvent) => void;
   log?: (message: string) => void;
+}
+
+/** Resolve `harness` across PATH and standard user-local install dirs (launchd omits `~/.local/bin`). */
+export function resolveHarnessBin(bin = "harness", pathEnv = process.env.PATH ?? "", home = os.homedir()): string | undefined {
+  if (path.isAbsolute(bin)) {
+    try {
+      fs.accessSync(bin, fs.constants.X_OK);
+      return bin;
+    } catch {
+      return undefined;
+    }
+  }
+  const dirs = [
+    ...pathEnv.split(path.delimiter).filter(Boolean),
+    path.join(home, ".local", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+  for (const d of dirs) {
+    const p = path.join(d, bin);
+    try {
+      fs.accessSync(p, fs.constants.X_OK);
+      return p;
+    } catch {
+      // next
+    }
+  }
+  return undefined;
 }
 
 interface HarnessEntry {
@@ -75,14 +105,21 @@ function pollHarness(bin: string): Promise<HarnessEntry[]> {
 }
 
 export function createHarnessWatcher(opts: HarnessWatcherOptions): HarnessWatcher {
-  const bin = opts.bin ?? "harness";
+  const rawBin = opts.bin ?? "harness";
   const intervalMs = opts.intervalMs ?? 8000;
   const seen = new Map<string, { source: string; kind: string; lastActive: string }>();
   let stopped = false;
   let inFlight = false;
+  let loggedBin: string | undefined;
 
   const tick = async (): Promise<void> => {
     if (stopped || inFlight) return;
+    const bin = resolveHarnessBin(rawBin);
+    if (!bin) return;
+    if (loggedBin !== bin) {
+      loggedBin = bin;
+      opts.log?.(`watching Harness sessions via ${bin}`);
+    }
     inFlight = true;
     try {
       const list = await pollHarness(bin);

@@ -10,6 +10,10 @@ import { createOpenCodeWatcher, defaultOpenCodeDbPath } from "../adapters/openco
 import type { OpenCodeWatcher } from "../adapters/opencode";
 import { createGeminiWatcher, defaultGeminiDir } from "../adapters/gemini";
 import type { GeminiWatcher } from "../adapters/gemini";
+import { createAntigravityWatcher, defaultAntigravityDir } from "../adapters/antigravity";
+import type { AntigravityWatcher } from "../adapters/antigravity";
+import { createGrokWatcher, defaultGrokDir } from "../adapters/grok";
+import type { GrokWatcher } from "../adapters/grok";
 import { createHarnessWatcher } from "../adapters/harness";
 import type { HarnessWatcher } from "../adapters/harness";
 import { buildCapacityReport, readFleetStatus } from "../lib/fleet";
@@ -716,12 +720,25 @@ export async function runDaemon(config: Config, opts: RunDaemonOptions = {}): Pr
     if (config.adapters.opencode?.enabled !== false) {
       const ocDb = config.adapters.opencode?.dbPath ?? defaultOpenCodeDbPath();
       ocWatcher = createOpenCodeWatcher({ dbPath: ocDb, onEvent: applyEvent, log });
+      if (fs.existsSync(ocDb)) log(`watching OpenCode sessions in ${ocDb}`);
     }
 
     let geminiWatcher: GeminiWatcher | undefined;
     if (config.adapters.gemini?.enabled !== false) {
       const gDir = config.adapters.gemini?.dir ?? defaultGeminiDir();
       geminiWatcher = createGeminiWatcher({ dir: gDir, onEvent: applyEvent, log });
+    }
+
+    let agyWatcher: AntigravityWatcher | undefined;
+    if (config.adapters.antigravity?.enabled !== false) {
+      const agyDir = config.adapters.antigravity?.dir ?? defaultAntigravityDir();
+      agyWatcher = createAntigravityWatcher({ dir: agyDir, onEvent: applyEvent, log });
+    }
+
+    let grokWatcher: GrokWatcher | undefined;
+    if (config.adapters.grok?.enabled !== false) {
+      const grokDir = config.adapters.grok?.dir ?? defaultGrokDir();
+      grokWatcher = createGrokWatcher({ dir: grokDir, onEvent: applyEvent, log });
     }
 
     let harnessWatcher: HarnessWatcher | undefined;
@@ -775,6 +792,8 @@ export async function runDaemon(config: Config, opts: RunDaemonOptions = {}): Pr
           await wfWatcher?.close();
           ocWatcher?.stop();
           geminiWatcher?.stop();
+          agyWatcher?.stop();
+          grokWatcher?.stop();
           harnessWatcher?.stop();
         } catch {
           // best effort

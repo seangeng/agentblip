@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { pairPollResponseSchema, pairStartResponseSchema } from "@workmesh/core";
 import {
@@ -9,7 +10,17 @@ import {
   installCodexNotify,
 } from "../adapters/codex";
 import { claudeSettingsPath, installClaudeHooks } from "../adapters/claude-code";
-import { claudeJsonPath, installClaudeMcp, installCodexMcp } from "../adapters/mcp-install";
+import {
+  antigravityMcpConfigPath,
+  claudeJsonPath,
+  geminiSettingsPath,
+  installAntigravityMcp,
+  installClaudeMcp,
+  installCodexMcp,
+  installGeminiMcp,
+  installOpenCodeMcp,
+  openCodeConfigPath,
+} from "../adapters/mcp-install";
 import type { McpInstallReport } from "../adapters/mcp-install";
 import { hubShareLevel, loadConfigSafe, saveConfig } from "../lib/config";
 import type { Config } from "../lib/config";
@@ -231,6 +242,34 @@ export function setupCodexMcp(): void {
   }
 }
 
+/** Registers `workmesh mcp` with detected Antigravity, OpenCode, and Gemini CLI installs. */
+export function setupExtraMcps(): void {
+  const agyPath = antigravityMcpConfigPath();
+  if (fs.existsSync(path.dirname(agyPath))) {
+    try {
+      console.log(`  antigravity mcp: ${mcpLine(installAntigravityMcp(agyPath))}`);
+    } catch (err) {
+      console.log(`  antigravity mcp: ${red(`could not update mcp_config.json: ${errorMessage(err)}`)}`);
+    }
+  }
+  const ocPath = openCodeConfigPath();
+  if (fs.existsSync(path.dirname(ocPath))) {
+    try {
+      console.log(`  opencode mcp: ${mcpLine(installOpenCodeMcp(ocPath))}`);
+    } catch (err) {
+      console.log(`  opencode mcp: ${red(`could not update opencode.json: ${errorMessage(err)}`)}`);
+    }
+  }
+  const gemPath = geminiSettingsPath();
+  if (fs.existsSync(gemPath)) {
+    try {
+      console.log(`  gemini mcp: ${mcpLine(installGeminiMcp(gemPath))}`);
+    } catch (err) {
+      console.log(`  gemini mcp: ${red(`could not update settings.json: ${errorMessage(err)}`)}`);
+    }
+  }
+}
+
 function installCodex(opts: { mcp?: boolean } = {}): void {
   try {
     const result = installCodexHooks();
@@ -288,6 +327,7 @@ export function installHooksOnly(
   } else {
     console.log(`  codex: ${dim(codex.why)}`);
   }
+  if (opts.mcp !== false) setupExtraMcps();
   const warning = nodePathWarning();
   if (warning) console.log(`  ${yellow(`note: ${warning}`)}`);
   console.log(`  ${sharingSummary(loadConfigSafe())}`);

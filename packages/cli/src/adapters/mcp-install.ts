@@ -312,3 +312,159 @@ export function removeCodexMcp(file = codexConfigPath()): { removed: boolean; pa
   writeAtomic(file, next);
   return { removed: true, path: file, backupPath };
 }
+
+// --- Antigravity (~/.gemini/config/mcp_config.json) & Gemini CLI (~/.gemini/settings.json) ---
+
+export function antigravityMcpConfigPath(home = os.homedir()): string {
+  return path.join(home, ".gemini", "config", "mcp_config.json");
+}
+
+export function geminiSettingsPath(home = os.homedir()): string {
+  return path.join(home, ".gemini", "settings.json");
+}
+
+function readJsonMcpServersEntry(file: string): { exists: boolean; entry?: McpEntry; error?: string } {
+  if (!fs.existsSync(file)) return { exists: false };
+  const raw = fs.readFileSync(file, "utf8").trim();
+  if (!raw) return { exists: true, entry: undefined };
+  try {
+    const doc = JSON.parse(raw) as { mcpServers?: Record<string, unknown> };
+    if (!doc || typeof doc !== "object" || Array.isArray(doc)) return { exists: true, error: "not a JSON object" };
+    const entry = doc.mcpServers?.[MCP_SERVER_NAME];
+    return { exists: true, entry: entry && typeof entry === "object" ? (entry as McpEntry) : undefined };
+  } catch {
+    return { exists: true, error: "not valid JSON" };
+  }
+}
+
+function installJsonMcpServers(file: string): McpInstallReport {
+  const want = mcpServerCommand();
+  const current = readJsonMcpServersEntry(file);
+  if (current.error) return { result: "manual", path: file, detail: `${file} is ${current.error}; left as is` };
+  if (current.entry && !isOurs(current.entry)) {
+    return { result: "manual", path: file, detail: `another MCP server named "${MCP_SERVER_NAME}" is registered; left as is` };
+  }
+  if (current.entry && sameCommand(current.entry, want)) return { result: "already-installed", path: file };
+  const result: McpInstallResult = current.entry ? "updated" : "installed";
+
+  let doc: Record<string, unknown> = {};
+  if (fs.existsSync(file)) {
+    const raw = fs.readFileSync(file, "utf8").trim();
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { result: "manual", path: file, detail: `${file} is not a JSON object; left as is` };
+      }
+      doc = parsed as Record<string, unknown>;
+    }
+  }
+  const servers = doc.mcpServers;
+  if (servers !== undefined && (typeof servers !== "object" || servers === null || Array.isArray(servers))) {
+    return { result: "manual", path: file, detail: `"mcpServers" in ${file} isn't an object; left as is` };
+  }
+  const next = { ...((servers as Record<string, unknown> | undefined) ?? {}) };
+  next[MCP_SERVER_NAME] = { command: want.command, args: want.args };
+  doc.mcpServers = next;
+  const backupPath = backupOnce(file);
+  writeAtomic(file, `${JSON.stringify(doc, null, 2)}\n`);
+  return { result, path: file, via: "file", backupPath };
+}
+
+export function isAntigravityMcpInstalled(file = antigravityMcpConfigPath()): boolean {
+  const r = readJsonMcpServersEntry(file);
+  return r.entry !== undefined && isOurs(r.entry);
+}
+
+/** Antigravity: merges `mcpServers.workmesh` into `~/.gemini/config/mcp_config.json` (handles 0-byte empty file). */
+export function installAntigravityMcp(file = antigravityMcpConfigPath()): McpInstallReport {
+  return installJsonMcpServers(file);
+}
+
+export function isGeminiMcpInstalled(file = geminiSettingsPath()): boolean {
+  const r = readJsonMcpServersEntry(file);
+  return r.entry !== undefined && isOurs(r.entry);
+}
+
+/** Gemini CLI: merges `mcpServers.workmesh` into `~/.gemini/settings.json`. */
+export function installGeminiMcp(file = geminiSettingsPath()): McpInstallReport {
+  return installJsonMcpServers(file);
+}
+
+// --- OpenCode (~/.config/opencode/opencode.json) -------------------------------
+
+export function openCodeConfigPath(home = os.homedir()): string {
+  const base = process.env.XDG_CONFIG_HOME || path.join(home, ".config");
+  return path.join(base, "opencode", "opencode.json");
+}
+
+interface OpenCodeMcpEntry {
+  type?: unknown;
+  command?: unknown;
+}
+
+function isOursOpenCode(entry: unknown): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  const cmd = (entry as OpenCodeMcpEntry).command;
+  return Array.isArray(cmd) && OUR_COMMAND_RE.test(JSON.stringify(cmd)) && cmd.includes("mcp");
+}
+
+function sameOpenCodeCommand(entry: OpenCodeMcpEntry, want: { command: string; args: string[] }): boolean {
+  const wantArr = [want.command, ...want.args];
+  return entry.type === "local" && JSON.stringify(entry.command ?? []) === JSON.stringify(wantArr);
+}
+
+export function isOpenCodeMcpInstalled(file = openCodeConfigPath()): boolean {
+  if (!fs.existsSync(file)) return false;
+  try {
+    const raw = fs.readFileSync(file, "utf8").trim();
+    if (!raw) return false;
+    const doc = JSON.parse(raw) as { mcp?: { servers?: Record<string, unknown> } };
+    return isOursOpenCode(doc?.mcp?.servers?.[MCP_SERVER_NAME]);
+  } catch {
+    return false;
+  }
+}
+
+/** OpenCode: merges `mcp.servers.workmesh` (`type: "local"`, `command: [node, cli, "mcp"]`) into `opencode.json`. */
+export function installOpenCodeMcp(file = openCodeConfigPath()): McpInstallReport {
+  const want = mcpServerCommand();
+  let doc: Record<string, unknown> = {};
+  if (fs.existsSync(file)) {
+    const raw = fs.readFileSync(file, "utf8").trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return { result: "manual", path: file, detail: `${file} is not a JSON object; left as is` };
+        }
+        doc = parsed as Record<string, unknown>;
+      } catch {
+        return { result: "manual", path: file, detail: `${file} is not valid JSON; left as is` };
+      }
+    }
+  }
+  const mcpObj = doc.mcp;
+  if (mcpObj !== undefined && (typeof mcpObj !== "object" || mcpObj === null || Array.isArray(mcpObj))) {
+    return { result: "manual", path: file, detail: `"mcp" in ${file} isn't an object; left as is` };
+  }
+  const mcp = { ...((mcpObj as Record<string, unknown> | undefined) ?? {}) };
+  const serversObj = mcp.servers;
+  if (serversObj !== undefined && (typeof serversObj !== "object" || serversObj === null || Array.isArray(serversObj))) {
+    return { result: "manual", path: file, detail: `"mcp.servers" in ${file} isn't an object; left as is` };
+  }
+  const servers = { ...((serversObj as Record<string, unknown> | undefined) ?? {}) };
+  const current = servers[MCP_SERVER_NAME] as OpenCodeMcpEntry | undefined;
+  if (current !== undefined && !isOursOpenCode(current)) {
+    return { result: "manual", path: file, detail: `another MCP server named "${MCP_SERVER_NAME}" is registered; left as is` };
+  }
+  if (current !== undefined && sameOpenCodeCommand(current, want)) {
+    return { result: "already-installed", path: file };
+  }
+  const result: McpInstallResult = current !== undefined ? "updated" : "installed";
+  servers[MCP_SERVER_NAME] = { type: "local", command: [want.command, ...want.args] };
+  mcp.servers = servers;
+  doc.mcp = mcp;
+  const backupPath = backupOnce(file);
+  writeAtomic(file, `${JSON.stringify(doc, null, 2)}\n`);
+  return { result, path: file, via: "file", backupPath };
+}
